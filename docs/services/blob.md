@@ -76,6 +76,12 @@ Lake Gen2 alias `{account}.dfs.core.windows.net`, which maps to the same blob ba
 ARM storage account responses include both `blob` and `dfs` primary endpoints so Data Lake SDK
 clients can discover the Gen2 endpoint shape.
 
+ARM keeps the settable storage account properties a `PUT` or `PATCH` sends, such as
+`allowBlobPublicAccess` (default `false`) and `minimumTlsVersion`. It also keeps the blob service
+properties (`blobServices/default`, including `isVersioningEnabled`, `deleteRetentionPolicy` and
+`changeFeed`) and the lifecycle policy (`managementPolicies/default`). The emulator stores and returns
+these settings. The data plane does not create blob versions or run lifecycle rules.
+
 ## Quickstart
 
 === "Python"

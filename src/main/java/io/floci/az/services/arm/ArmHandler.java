@@ -40,6 +40,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Queue;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Predicate;
@@ -69,11 +70,18 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
 
     private static final String DEFAULT_FUNCTIONS_ACCOUNT = "devstoreaccount1";
 
+    /** Storage account properties the service sets; a client's values for them are ignored. */
+    private static final Set<String> STORAGE_READ_ONLY_PROPERTIES = Set.of(
+            "provisioningState", "isHnsEnabled", "primaryEndpoints", "primaryLocation", "statusOfPrimary",
+            "secondaryEndpoints", "secondaryLocation", "statusOfSecondary", "creationTime");
+
     // In-memory ARM resource state — no StorageBackend needed, these are ephemeral
     private final Map<String, Map<String, Object>> storageAccounts  = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> keyVaults        = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> managedHsms      = new ConcurrentHashMap<>();
     private final Map<String, Map<String, Object>> webApps          = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Object>> blobServices     = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, Object>> managementPolicies = new ConcurrentHashMap<>();
     private final EmulatorConfig config;
     private final BlobServiceHandler blobHandler;
     private final QueueServiceHandler queueHandler;
@@ -577,9 +585,12 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
 
         // .../storageAccounts/{name}/blobServices/default  (blobServices properties)
         if (path.contains("/blobServices/default") && !path.contains("/containers/")) {
-            return Response.ok(Map.of("id", path, "name", "default",
-                    "type", "Microsoft.Storage/storageAccounts/blobServices",
-                    "properties", Map.of())).build();
+            return handleBlobServices(req, method, sub, rg, extractResourceName(path, "storageAccounts"));
+        }
+
+        // .../storageAccounts/{name}/managementPolicies/default  (lifecycle management)
+        if (path.contains("/managementPolicies/")) {
+            return handleManagementPolicy(req, method, sub, rg, extractResourceName(path, "storageAccounts"));
         }
 
         // .../storageAccounts/{name}/queueServices/default/queues/{queue}
@@ -609,12 +620,14 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return switch (method) {
                 case "PUT"    -> createOrUpdateStorageAccount(req, sub, rg, account);
                 case "GET"    -> getStorageAccount(sub, rg, account);
-                case "PATCH"  -> patchTags(storageAccounts, saKey(sub, rg, account), req, "storageAccounts/" + account);
+                case "PATCH"  -> patchStorageAccount(req, sub, rg, account);
                 case "DELETE" -> {
                     synchronized (this) {
                         if (storageAccounts.remove(saKey(sub, rg, account)) != null) {
                             blobHandler.removeHierarchicalNamespaceOverride(account);
                         }
+                        blobServices.remove(saKey(sub, rg, account));
+                        managementPolicies.remove(saKey(sub, rg, account));
                     }
                     yield Response.ok().build();
                 }
@@ -672,26 +685,29 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         resource.put("sku", Map.of("name", "Standard_LRS", "tier", "Standard"));
         resource.put("kind", "StorageV2");
         putTags(resource, tags(body.get("tags")));
-        resource.put("properties", Map.of(
-                "provisioningState", "Succeeded",
-                "isHnsEnabled", hnsEnabled,
-                "primaryEndpoints", Map.of(
-                        "blob",  "http://" + account + ".blob." + suffix + portStr + "/",
-                        "dfs",   "http://" + account + ".dfs." + suffix + portStr + "/",
-                        "queue", "http://" + account + ".queue." + suffix + portStr + "/",
-                        "table", "http://" + account + ".table." + suffix + portStr + "/"),
-                "primaryLocation", location,
-                "statusOfPrimary", "available",
-                "supportsHttpsTrafficOnly", false,
-                "accessTier", "Hot",
-                "encryption", Map.of(
-                        "services", Map.of(
-                                "blob",  Map.of("enabled", true, "keyType", "Account"),
-                                "file",  Map.of("enabled", true, "keyType", "Account"),
-                                "queue", Map.of("enabled", true, "keyType", "Account"),
-                                "table", Map.of("enabled", true, "keyType", "Account")),
-                        "keySource", "Microsoft.Storage")
-        ));
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("provisioningState", "Succeeded");
+        properties.put("isHnsEnabled", hnsEnabled);
+        properties.put("primaryEndpoints", Map.of(
+                "blob",  "http://" + account + ".blob." + suffix + portStr + "/",
+                "dfs",   "http://" + account + ".dfs." + suffix + portStr + "/",
+                "queue", "http://" + account + ".queue." + suffix + portStr + "/",
+                "table", "http://" + account + ".table." + suffix + portStr + "/"));
+        properties.put("primaryLocation", location);
+        properties.put("statusOfPrimary", "available");
+        properties.put("supportsHttpsTrafficOnly", false);
+        properties.put("accessTier", "Hot");
+        properties.put("allowBlobPublicAccess", false);
+        properties.put("encryption", Map.of(
+                "services", Map.of(
+                        "blob",  Map.of("enabled", true, "keyType", "Account"),
+                        "file",  Map.of("enabled", true, "keyType", "Account"),
+                        "queue", Map.of("enabled", true, "keyType", "Account"),
+                        "table", Map.of("enabled", true, "keyType", "Account")),
+                "keySource", "Microsoft.Storage"));
+        putSettable(properties, existingProperties);
+        putSettable(properties, requestedProperties);
+        resource.put("properties", properties);
 
         storageAccounts.put(saKey(sub, rg, account), resource);
         blobHandler.setHierarchicalNamespaceEnabled(account, hnsEnabled);
@@ -705,6 +721,99 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return armNotFound("storageAccounts/" + account);
         }
         return Response.ok(stripInternal(resource)).build();
+    }
+
+    /**
+     * {@code PATCH} of a storage account: a {@code tags} object replaces the whole set, and each settable
+     * property in the body replaces the stored one. azurerm sends its account updates this way.
+     */
+    private synchronized Response patchStorageAccount(AzureRequest req, String sub, String rg, String account) {
+        Map<String, Object> existing = storageAccounts.get(saKey(sub, rg, account));
+        if (existing == null) {
+            return armNotFound("storageAccounts/" + account);
+        }
+        Map<String, Object> body = parseBody(req);
+        Map<String, Object> updated = new LinkedHashMap<>(existing);
+        putTags(updated, tags(body.get("tags")));
+        Map<String, Object> properties = new LinkedHashMap<>(cast(existing.get("properties")));
+        putSettable(properties, cast(body.get("properties")));
+        updated.put("properties", properties);
+        storageAccounts.put(saKey(sub, rg, account), updated);
+        return Response.ok(stripInternal(updated)).build();
+    }
+
+    /** Copies the client-settable entries of {@code source} into {@code properties}. */
+    private static void putSettable(Map<String, Object> properties, Map<String, Object> source) {
+        source.forEach((key, value) -> {
+            if (!STORAGE_READ_ONLY_PROPERTIES.contains(key)) {
+                properties.put(key, value);
+            }
+        });
+    }
+
+    // ── Blob service properties and lifecycle management (via ARM) ───────────
+
+    private synchronized Response handleBlobServices(AzureRequest req, String method, String sub, String rg,
+                                                     String account) {
+        Map<String, Object> owner = storageAccounts.get(saKey(sub, rg, account));
+        if (owner == null) {
+            return armNotFound("storageAccounts/" + account);
+        }
+        Map<String, Object> properties = blobServices.computeIfAbsent(saKey(sub, rg, account),
+                key -> defaultBlobServiceProperties());
+        if ("PUT".equals(method)) {
+            // Properties the body leaves out keep their stored value.
+            properties.putAll(cast(parseBody(req).get("properties")));
+        } else if (!"GET".equals(method)) {
+            return Response.status(405).build();
+        }
+        Map<String, Object> resource = new LinkedHashMap<>();
+        resource.put("id", owner.get("id") + "/blobServices/default");
+        resource.put("name", "default");
+        resource.put("type", "Microsoft.Storage/storageAccounts/blobServices");
+        resource.put("sku", owner.get("sku"));
+        resource.put("properties", properties);
+        return Response.ok(resource).build();
+    }
+
+    private static Map<String, Object> defaultBlobServiceProperties() {
+        Map<String, Object> properties = new LinkedHashMap<>();
+        properties.put("cors", Map.of("corsRules", List.of()));
+        properties.put("deleteRetentionPolicy", Map.of("allowPermanentDelete", false, "enabled", false));
+        return properties;
+    }
+
+    private synchronized Response handleManagementPolicy(AzureRequest req, String method, String sub, String rg,
+                                                         String account) {
+        Map<String, Object> owner = storageAccounts.get(saKey(sub, rg, account));
+        if (owner == null) {
+            return armNotFound("storageAccounts/" + account);
+        }
+        String key = saKey(sub, rg, account);
+        return switch (method) {
+            case "PUT" -> {
+                Map<String, Object> properties = new LinkedHashMap<>();
+                properties.put("lastModifiedTime", Instant.now().toString());
+                properties.put("policy", cast(parseBody(req).get("properties")).get("policy"));
+                Map<String, Object> policy = new LinkedHashMap<>();
+                policy.put("id", owner.get("id") + "/managementPolicies/default");
+                policy.put("name", "DefaultManagementPolicy");
+                policy.put("type", "Microsoft.Storage/storageAccounts/managementPolicies");
+                policy.put("properties", properties);
+                managementPolicies.put(key, policy);
+                yield Response.ok(policy).build();
+            }
+            case "GET" -> {
+                Map<String, Object> policy = managementPolicies.get(key);
+                yield policy == null
+                        ? armNotFound("storageAccounts/" + account + "/managementPolicies/default")
+                        : Response.ok(policy).build();
+            }
+            case "DELETE" -> managementPolicies.remove(key) != null
+                    ? Response.ok().build()
+                    : Response.noContent().build();
+            default -> Response.status(405).build();
+        };
     }
 
     private Response listKeys(String account) {
@@ -1071,6 +1180,8 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         keyVaults.clear();
         managedHsms.clear();
         webApps.clear();
+        blobServices.clear();
+        managementPolicies.clear();
     }
 
     // ── Helpers ───────────────────────────────────────────────────────────────

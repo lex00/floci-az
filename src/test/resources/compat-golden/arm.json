@@ -1327,6 +1327,7 @@
       "name" : "goldensa0001",
       "properties" : {
         "accessTier" : "Hot",
+        "allowBlobPublicAccess" : false,
         "encryption" : {
           "keySource" : "Microsoft.Storage",
           "services" : {
@@ -1380,6 +1381,7 @@
       "name" : "goldensa0001",
       "properties" : {
         "accessTier" : "Hot",
+        "allowBlobPublicAccess" : false,
         "encryption" : {
           "keySource" : "Microsoft.Storage",
           "services" : {
