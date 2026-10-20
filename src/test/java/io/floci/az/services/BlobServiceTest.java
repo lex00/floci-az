@@ -613,6 +613,18 @@ public class BlobServiceTest {
     }
 
     @Test
+    void putBlobAnswersAQuotedHexEtag() {
+        given().put("/{account}/{container}?restype=container", ACCOUNT, CONTAINER);
+        given()
+            .header("x-ms-blob-type", "BlockBlob")
+            .body("data")
+            .put("/{account}/{container}/etag-format.txt", ACCOUNT, CONTAINER)
+            .then()
+            .statusCode(201)
+            .header("ETag", matchesPattern("^\"0x[A-F0-9]{15,}\"$"));
+    }
+
+    @Test
     void putBlobWithIfNoneMatchStarOverAnExistingBlobIsBlobAlreadyExists() {
         given().put("/{account}/{container}?restype=container", ACCOUNT, CONTAINER);
         given()
