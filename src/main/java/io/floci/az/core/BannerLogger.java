@@ -196,6 +196,9 @@ public class BannerLogger {
         sb.append(String.format("   %-9s [%s]  %s\n", "rbac",
                 config.services().rbac().enabled() ? "enabled " : "disabled",
                 "Microsoft.Authorization RBAC (role definitions, role assignments, permissions)"));
+        sb.append(String.format("   %-9s [%s]  %s\n", "deploy",
+                config.services().deployments().enabled() ? "enabled " : "disabled",
+                "Microsoft.Resources/deployments (ARM template deployments)"));
         sb.append(String.format("   %-9s [%s]  %s\n", "resgraph",
                 config.services().resourceGraph().enabled() ? "enabled " : "disabled",
                 "Microsoft.ResourceGraph (KQL queries over Resources and ResourceContainers)"));

@@ -287,6 +287,7 @@ public interface EmulatorConfig {
         PolicyConfig           policy();
         ResourceGraphConfig    resourceGraph();
         RbacConfig             rbac();
+        DeploymentsConfig      deployments();
 
         /** Shared Docker network for sidecar containers (Artemis, Redpanda, etc.). */
         Optional<String> dockerNetwork();
@@ -412,6 +413,12 @@ public interface EmulatorConfig {
 
         /** Object ids exempt from {@link #enforce()}, such as the principal that sets up the estate. */
         Optional<List<String>> adminPrincipals();
+    }
+
+    /** ARM template deployments (Microsoft.Resources/deployments) at resource-group and subscription scope. */
+    interface DeploymentsConfig {
+        @WithDefault("true")
+        boolean enabled();
     }
 
     /** Azure Resource Graph: KQL queries over the generic resource index and the resource containers. */

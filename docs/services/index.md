@@ -36,6 +36,7 @@ Floci-AZ provides emulation for several core Azure services.
 | **Managed Identity** | ARM path (`Microsoft.ManagedIdentity`) + `/metadata/identity/oauth2/token` + `/msi/token` | ✅ User-assigned identities + federated identity credentials, system-assigned `identities/default`, IMDS token endpoint (`ManagedIdentityCredential` via `AZURE_POD_IDENTITY_AUTHORITY_HOST`), App Service token endpoint (`IDENTITY_ENDPOINT` / `IDENTITY_HEADER`); tokens signed with the Entra key |
 | **Azure Policy** | ARM path (`Microsoft.Authorization/policy*`) | ✅ Policy definitions, set definitions, assignments and exemptions at management-group, subscription, resource-group and resource scope; opt-in `deny` and `denyAction` evaluation of a rule subset; no compliance data, no built-in definitions |
 | **Azure RBAC** | ARM path (`Microsoft.Authorization/roleDefinitions`, `roleAssignments`, `permissions`) | ✅ Built-in and custom role definitions, role assignments with ABAC conditions at every scope, and the caller's permissions |
+| **Template deployments** | ARM path (`Microsoft.Resources/deployments`) | ✅ Resource-group and subscription deployments provisioned through the other handlers; parameters, variables, `dependsOn`, `copy`, outputs, operations, validate; Incremental and Complete modes |
 | **Azure Resource Graph** | ARM path (`Microsoft.ResourceGraph/resources`) | ✅ KQL subset over `Resources` and `ResourceContainers`; paging with `$skipToken`; object array and table formats |
 
 ## Unified Endpoint

@@ -17,6 +17,7 @@ import jakarta.ws.rs.core.MultivaluedMap;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.io.ByteArrayInputStream;
 import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -159,8 +160,17 @@ public class ArmRouter {
      * @return the handler's response; an ARM {@code 404 ResourceNotFound} when no stage claims the path
      */
     public Response dispatchInternal(String method, String path, Map<String, String> query, AzureRequest origin) {
+        return dispatchInternal(method, path, query, null, origin);
+    }
+
+    /** {@link #dispatchInternal(String, String, Map, AzureRequest)} with a JSON {@code body}, or none when null. */
+    public Response dispatchInternal(String method, String path, Map<String, String> query, byte[] body,
+                                     AzureRequest origin) {
         String relative = path.startsWith("/") ? path.substring(1) : path;
         Map<String, String> initialHeaders = new LinkedHashMap<>();
+        if (body != null) {
+            initialHeaders.put(HttpHeaders.CONTENT_TYPE, "application/json");
+        }
         if (origin.headers() != null) {
             for (String name : FORWARDED_HEADERS) {
                 initialHeaders.put(name, origin.headers().getHeaderString(name));
@@ -177,7 +187,8 @@ public class ArmRouter {
             .map(entry -> entry.getKey() + "=" + entry.getValue())
             .collect(Collectors.joining("&"));
         RoutingContext ctx = new RoutingContext(method.toUpperCase(Locale.ROOT), relative, relative, rawQuery,
-            headers, headers.map(), queryParameters, InputStream.nullInputStream(), origin.host(), origin.secure(),
+            headers, headers.map(), queryParameters,
+            body == null ? InputStream.nullInputStream() : new ByteArrayInputStream(body), origin.host(), origin.secure(),
             origin.remoteAddress(), authority, scopeResolver.resolve(relative, origin.host()));
         LOG.debugv("Internal ARM request: {0} {1}", ctx.method(), relative);
         for (Function<RoutingContext, RouteOutcome> stage : internalStages) {
