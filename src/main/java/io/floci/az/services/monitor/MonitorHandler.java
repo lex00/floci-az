@@ -190,6 +190,7 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
             workspace.put("name", name);
             workspace.put("type", "Microsoft.OperationalInsights/workspaces");
             workspace.put("location", location);
+            copyTags(body, workspace);
             
             Map<String, Object> newProps = new LinkedHashMap<>(props);
             newProps.put("provisioningState", "Succeeded");
@@ -248,6 +249,7 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
             dce.put("name", name);
             dce.put("type", "Microsoft.Insights/dataCollectionEndpoints");
             dce.put("location", location);
+            copyTags(body, dce);
 
             String ingestUrl = config.effectiveBaseUrl();
 
@@ -300,6 +302,7 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
             dcr.put("name", name);
             dcr.put("type", "Microsoft.Insights/dataCollectionRules");
             dcr.put("location", location);
+            copyTags(body, dcr);
 
             Map<String, Object> newProps = new LinkedHashMap<>(props);
             newProps.put("provisioningState", "Succeeded");
@@ -575,6 +578,13 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
             return MAPPER.readValue(obj.data(), Map.class);
         } catch (IOException e) {
             return new HashMap<>();
+        }
+    }
+
+    /** Copies the request's {@code tags} onto the stored resource; a {@code PUT} without them clears them. */
+    private static void copyTags(Map<String, Object> body, Map<String, Object> resource) {
+        if (body.get("tags") instanceof Map<?, ?> tags) {
+            resource.put("tags", tags);
         }
     }
 

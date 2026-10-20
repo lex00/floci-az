@@ -469,7 +469,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         String linuxFxVersion = bodyString(siteConfig, "linuxFxVersion", null);
         try {
             Map<String, Object> resource = webAppResource(sub, rg, appName,
-                    bodyString(body, "location", "eastus"), linuxFxVersion);
+                    bodyString(body, "location", "eastus"), linuxFxVersion, tags(body.get("tags")));
             syncFunctionApp(appName, linuxFxVersion);
             webApps.put(webAppKey(sub, rg, appName), resource);
             return Response.ok(stripInternal(resource)).build();
@@ -505,7 +505,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         String linuxFxVersion = bodyString(config, "linuxFxVersion", null);
         try {
             Map<String, Object> updated = webAppResource(sub, rg, appName,
-                    bodyString(resource, "location", "eastus"), linuxFxVersion);
+                    bodyString(resource, "location", "eastus"), linuxFxVersion, tags(resource.get("tags")));
             syncFunctionApp(appName, linuxFxVersion);
             webApps.put(webAppKey(sub, rg, appName), updated);
             return Response.ok(Map.of("id", path, "name", "web",
@@ -526,7 +526,8 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
     }
 
     private static Map<String, Object> webAppResource(String sub, String rg, String appName,
-                                                       String location, String linuxFxVersion) {
+                                                       String location, String linuxFxVersion,
+                                                       Map<String, Object> tags) {
         Map<String, Object> siteConfig = new LinkedHashMap<>();
         if (linuxFxVersion != null) {
             siteConfig.put("linuxFxVersion", linuxFxVersion);
@@ -544,6 +545,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         resource.put("type", "Microsoft.Web/sites");
         resource.put("location", location);
         resource.put("kind", "functionapp,linux");
+        putTags(resource, tags);
         resource.put("properties", properties);
         return resource;
     }
@@ -607,6 +609,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return switch (method) {
                 case "PUT"    -> createOrUpdateStorageAccount(req, sub, rg, account);
                 case "GET"    -> getStorageAccount(sub, rg, account);
+                case "PATCH"  -> patchTags(storageAccounts, saKey(sub, rg, account), req, "storageAccounts/" + account);
                 case "DELETE" -> {
                     synchronized (this) {
                         if (storageAccounts.remove(saKey(sub, rg, account)) != null) {
@@ -667,6 +670,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         resource.put("location", location);
         resource.put("sku", Map.of("name", "Standard_LRS", "tier", "Standard"));
         resource.put("kind", "StorageV2");
+        putTags(resource, tags(body.get("tags")));
         resource.put("properties", Map.of(
                 "provisioningState", "Succeeded",
                 "isHnsEnabled", hnsEnabled,
@@ -793,6 +797,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return switch (method) {
                 case "PUT"    -> createOrUpdateKeyVault(req, sub, rg, vaultName);
                 case "GET"    -> getKeyVault(sub, rg, vaultName);
+                case "PATCH"  -> patchTags(keyVaults, kvKey(sub, rg, vaultName), req, "vaults/" + vaultName);
                 case "DELETE" -> { keyVaults.remove(kvKey(sub, rg, vaultName)); yield Response.ok().build(); }
                 default       -> Response.status(405).build();
             };
@@ -843,6 +848,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         resource.put("name",     vaultName);
         resource.put("type",     "Microsoft.KeyVault/vaults");
         resource.put("location", location);
+        putTags(resource, tags(body.get("tags")));
         resource.put("properties", Map.of(
                 "vaultUri",          vaultUri,
                 "tenantId",          tenantId,
@@ -903,6 +909,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         resource.put("name",     hsmName);
         resource.put("type",     "Microsoft.KeyVault/managedHSMs");
         resource.put("location", location);
+        putTags(resource, tags(body.get("tags")));
         resource.put("sku",       skuOut);
         resource.put("properties", properties);
 
@@ -917,6 +924,44 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return armNotFound("managedHSMs/" + hsmName);
         }
         return Response.ok(stripInternal(resource)).build();
+    }
+
+    // ── Tags ─────────────────────────────────────────────────────────────────
+
+    /**
+     * {@code PATCH} of a resource held in {@code store}: a {@code tags} object replaces the whole set, which is
+     * what azurerm sends; the rest of the resource stays as its last {@code PUT} left it.
+     */
+    private synchronized Response patchTags(Map<String, Map<String, Object>> store, String key, AzureRequest req,
+                                            String notFoundName) {
+        Map<String, Object> existing = store.get(key);
+        if (existing == null) {
+            return armNotFound(notFoundName);
+        }
+        Map<String, Object> tags = tags(parseBody(req).get("tags"));
+        Map<String, Object> updated = new LinkedHashMap<>(existing);
+        if (tags != null) {
+            updated.put("tags", tags);
+        }
+        store.put(key, updated);
+        return Response.ok(stripInternal(updated)).build();
+    }
+
+    /** A {@code PUT} replaces the resource, so tags the body leaves out are gone. */
+    private static void putTags(Map<String, Object> resource, Map<String, Object> tags) {
+        if (tags != null) {
+            resource.put("tags", tags);
+        }
+    }
+
+    /** The {@code tags} object as a string-keyed copy, or null when there is none. */
+    private static Map<String, Object> tags(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return null;
+        }
+        Map<String, Object> tags = new LinkedHashMap<>();
+        map.forEach((key, value) -> tags.put(String.valueOf(key), value));
+        return tags;
     }
 
     // ── Global resource names ────────────────────────────────────────────────

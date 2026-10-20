@@ -189,6 +189,9 @@ public class ApiManagementService {
                 bodyString(body, "location", "eastus"), properties);
         Object sku = body.get("sku");
         resource.put("sku", sku instanceof Map<?, ?> ? sku : Map.of("name", "Developer", "capacity", 1));
+        if (body.get("tags") instanceof Map<?, ?> tags) {
+            resource.put("tags", tags);
+        }
         services.put(serviceKey(sub, rg, serviceName), resource);
         LOG.infof("ARM: created API Management service %s", serviceName);
         return Response.ok(stripInternal(resource)).build();

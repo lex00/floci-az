@@ -4,6 +4,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import io.quarkus.runtime.annotations.RegisterForReflection;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Domain objects for Azure Event Grid Custom Topics and webhook event subscriptions.
@@ -37,7 +38,8 @@ public final class EventGridModels {
             String location,
             String inputSchema,
             String key1,
-            String key2) {
+            String key2,
+            Map<String, String> tags) {
 
         public String resourceId() {
             return "/subscriptions/" + subscriptionId + "/resourceGroups/" + resourceGroup

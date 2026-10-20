@@ -118,7 +118,7 @@ public class EventGridService {
         String key1 = existing != null ? existing.key1() : generateKey();
         String key2 = existing != null ? existing.key2() : generateKey();
 
-        Topic topic = new Topic(sub, rg, name, location, inputSchema, key1, key2);
+        Topic topic = new Topic(sub, rg, name, location, inputSchema, key1, key2, tags(body.get("tags")));
         writeTopic(topic);
         LOG.infov("ARM: created Event Grid topic {0} (schema={1})", name, inputSchema);
         return Response.ok(topicJson(topic)).build();
@@ -155,8 +155,8 @@ public class EventGridService {
         Topic t = existing.get();
         String keyName = stringOr(parseBody(req).get("keyName"), "key1");
         Topic updated = "key2".equalsIgnoreCase(keyName)
-                ? new Topic(sub, rg, name, t.location(), t.inputSchema(), t.key1(), generateKey())
-                : new Topic(sub, rg, name, t.location(), t.inputSchema(), generateKey(), t.key2());
+                ? new Topic(sub, rg, name, t.location(), t.inputSchema(), t.key1(), generateKey(), t.tags())
+                : new Topic(sub, rg, name, t.location(), t.inputSchema(), generateKey(), t.key2(), t.tags());
         writeTopic(updated);
         return Response.ok(Map.of("key1", updated.key1(), "key2", updated.key2())).build();
     }
@@ -279,7 +279,7 @@ public class EventGridService {
                 .map(this::toTopicFrom)
                 .filter(t -> t != null && ArmResources.inScope(t.resourceId(), sub, rg))
                 .map(t -> ArmResources.indexEntry(t.resourceId(), t.name(), "Microsoft.EventGrid/topics",
-                        t.location(), null))
+                        t.location(), t.tags()))
                 .toList();
     }
 
@@ -309,8 +309,21 @@ public class EventGridService {
         resource.put("name", t.name());
         resource.put("type", "Microsoft.EventGrid/topics");
         resource.put("location", t.location());
+        if (t.tags() != null) {
+            resource.put("tags", t.tags());
+        }
         resource.put("properties", properties);
         return resource;
+    }
+
+    /** The body's {@code tags} as strings, or null when it carries none. */
+    private static Map<String, String> tags(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return null;
+        }
+        Map<String, String> tags = new LinkedHashMap<>();
+        map.forEach((key, value) -> tags.put(String.valueOf(key), String.valueOf(value)));
+        return tags;
     }
 
     private Map<String, Object> subscriptionJson(EventSubscription s) {
