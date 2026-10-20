@@ -285,6 +285,7 @@ public interface EmulatorConfig {
         ManagedIdentityConfig  managedIdentity();
         ContainerAppsConfig    containerApps();
         PolicyConfig           policy();
+        ResourceGraphConfig    resourceGraph();
 
         /** Shared Docker network for sidecar containers (Artemis, Redpanda, etc.). */
         Optional<String> dockerNetwork();
@@ -385,6 +386,12 @@ public interface EmulatorConfig {
      * assignments and exemptions. Control plane only; rules are stored, never evaluated.
      */
     interface PolicyConfig {
+        @WithDefault("true")
+        boolean enabled();
+    }
+
+    /** Azure Resource Graph: KQL queries over the generic resource index and the resource containers. */
+    interface ResourceGraphConfig {
         @WithDefault("true")
         boolean enabled();
     }

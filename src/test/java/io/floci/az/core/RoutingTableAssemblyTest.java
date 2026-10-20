@@ -81,7 +81,8 @@ class RoutingTableAssemblyTest {
      * A4's PROVIDER_ROUTES plus later services, minus {@code Microsoft.EventGrid}: A6 moved Event Grid's control plane out
      * of the filter's provider lane into the ArmHandler lane (it implements {@code ArmProviderService}),
      * so it is no longer a filter provider route. {@code Microsoft.Authorization} was added later for
-     * the guarded Azure Policy route. Every other entry is unchanged from A4.
+     * the guarded Azure Policy route, and {@code Microsoft.ResourceGraph} for Resource Graph. Every other entry
+     * is unchanged from A4.
      */
     private static final Set<Map.Entry<String, String>> GOLDEN_PROVIDER_ROUTES = Set.of(
         Map.entry("/providers/Microsoft.ManagedIdentity/", "managedidentity"),
@@ -96,7 +97,8 @@ class RoutingTableAssemblyTest {
         Map.entry("/providers/Microsoft.Compute/", "vm"),
         Map.entry("/providers/Microsoft.Cache/", "redis"),
         Map.entry("/providers/Microsoft.Communication/", "email"),
-        Map.entry("/providers/Microsoft.App/", "containerapps")
+        Map.entry("/providers/Microsoft.App/", "containerapps"),
+        Map.entry("/providers/Microsoft.ResourceGraph/", "resourcegraph")
     );
 
     private static Set<Map.Entry<String, String>> asEntries(List<SuffixRoute> routes) {

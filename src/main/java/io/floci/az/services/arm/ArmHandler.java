@@ -356,6 +356,11 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
                 .filter(matches).toList())).build();
     }
 
+    /** The subscription's resources as {@code GET subscriptions/{sub}/resources} lists them. */
+    public List<Map<String, Object>> subscriptionResources(String sub) {
+        return indexedResources(sub, null, config.resourceGroupDelete());
+    }
+
     /** The id of every resource in the subscription, contributors listed only under parity included. */
     private List<String> resourceIds(String sub) {
         return indexedResources(sub, null, true).stream()
