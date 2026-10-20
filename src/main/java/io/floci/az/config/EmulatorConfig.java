@@ -384,11 +384,18 @@ public interface EmulatorConfig {
 
     /**
      * Azure Policy control plane under Microsoft.Authorization: policy definitions, set definitions,
-     * assignments and exemptions. Control plane only; rules are stored, never evaluated.
+     * assignments and exemptions. Rules are evaluated only under {@link #evaluate()}.
      */
     interface PolicyConfig {
         @WithDefault("true")
         boolean enabled();
+
+        /**
+         * Whether assignments refuse ARM writes their {@code deny} rules match and deletes their {@code denyAction}
+         * rules match, answering {@code 403 RequestDisallowedByPolicy}.
+         */
+        @WithDefault("false")
+        boolean evaluate();
     }
 
     /** Azure RBAC under Microsoft.Authorization: role definitions, role assignments and the caller's permissions. */

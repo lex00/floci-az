@@ -323,7 +323,8 @@ floci-az:
       app-service-path: msi/token            # FLOCI_AZ_SERVICES_MANAGED_IDENTITY_APP_SERVICE_PATH
       app-service-header-secret: floci-az-msi-secret   # FLOCI_AZ_SERVICES_MANAGED_IDENTITY_APP_SERVICE_HEADER_SECRET
     policy:
-      enabled: true       # Microsoft.Authorization policy definitions, set definitions, assignments and exemptions (control plane only, no rule evaluation)
+      enabled: true       # Microsoft.Authorization policy definitions, set definitions, assignments and exemptions
+      evaluate: false     # FLOCI_AZ_SERVICES_POLICY_EVALUATE: deny and denyAction (delete) refuse matching ARM requests with 403 RequestDisallowedByPolicy
     rbac:
       enabled: true       # Microsoft.Authorization role definitions, role assignments (with ABAC conditions) and permissions
       enforce: false      # FLOCI_AZ_SERVICES_RBAC_ENFORCE: hold callers with a token oid to their role assignments (403 AuthorizationFailed)

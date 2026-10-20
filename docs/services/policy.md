@@ -10,10 +10,10 @@ exemptions** at every scope the real service accepts.
 > **HTTP-only, no Docker.** All policy state is in-memory and ephemeral, like the rest of the ARM
 > control plane.
 
-> **Control plane only.** Definitions are stored and validated structurally, but policy rules are
-> never evaluated against resource requests: nothing is denied, audited or remediated, and there is no
-> compliance state (`Microsoft.PolicyInsights` is not implemented). Use this to exercise the code that
-> authors and deploys policies, not the code that reacts to their effects.
+> **Control plane by default.** Definitions are stored and validated structurally. With
+> `evaluate: true`, assignments refuse the ARM requests their `deny` and `denyAction` rules match (see
+> [Evaluation](#evaluation)). Nothing is audited or remediated, and there is no compliance state
+> (`Microsoft.PolicyInsights` is not implemented).
 
 ---
 
@@ -166,20 +166,59 @@ floci-az:
   services:
     policy:
       enabled: true
+      evaluate: false
 ```
 
 | Property | Env var | Default | Description |
 |---|---|---|---|
 | `enabled` | `FLOCI_AZ_SERVICES_POLICY_ENABLED` | `true` | Enables the `Microsoft.Authorization` policy resources. When disabled, their paths fall through to the generic ARM handler and answer `404` |
+| `evaluate` | `FLOCI_AZ_SERVICES_POLICY_EVALUATE` | `false` | Evaluates `deny` and `denyAction` rules against ARM requests, as described under [Evaluation](#evaluation) |
+
+---
+
+## Evaluation
+
+With `evaluate: true`, every assignment whose scope covers an ARM request's target is applied before the
+request reaches its handler. `notScopes`, `enforcementMode: DoNotEnforce` and unexpired exemptions each
+take a target out of an assignment. An exemption that
+lists `policyDefinitionReferenceIds` skips only those definitions of an initiative.
+
+- `deny` refuses a `PUT` or `PATCH` that the rule's `if` matches. A `PUT` is judged on its body, and a `PATCH`
+  on the resource it would leave: the stored resource with the body's fields over it.
+- `denyAction` with `delete` in `details.actionNames` refuses a `DELETE` of a resource the rule matches.
+- Other effects never block a request, so they are not evaluated.
+- `Indexed` definitions skip resource groups. Data-plane modes (`Microsoft.KeyVault.Data` and the rest) are
+  skipped.
+
+A refused request answers `403 RequestDisallowedByPolicy`. The message carries the assignment's
+non-compliance message when it has one. `additionalInfo` holds a `PolicyViolation` entry that names the
+assignment and definition.
+
+The rule language is a subset:
+
+| Part | Supported |
+|---|---|
+| Logical operators | `allOf`, `anyOf`, `not` |
+| Conditions | `field` or `value` with `equals`, `notEquals`, `like`, `notLike`, `match`, `notMatch`, `matchInsensitively`, `notMatchInsensitively`, `contains`, `notContains`, `in`, `notIn`, `containsKey`, `notContainsKey`, `less`, `lessOrEquals`, `greater`, `greaterOrEquals`, `exists` |
+| Fields | `type`, `name`, `fullName`, `id`, `kind`, `location`, `tags`, `tags['key']`, `tags[key]`, `tags.key` |
+| Template functions | `parameters`, `field`, `concat`, `toLower`, `toUpper` |
+
+String comparisons ignore case, tag names match in any case, and a missing field compares as an empty
+string. Parameters take the assignment's values over the definition's defaults. Within an initiative,
+the set's parameters feed each reference.
+
+**Unreadable rules fail closed.** An alias, a `count` expression, another template function, or a definition
+floci-az does not hold (such as a built-in) refuses the request with `RequestDisallowedByPolicy`. The message
+says floci-az cannot evaluate the policy. This happens only when evaluation reaches the unreadable part, so a
+rule whose `type` check fails first lets other types through.
 
 ---
 
 ## Intentional deviations
 
-- **No enforcement and no compliance data.** Policy rules are stored, not evaluated. Resource
-  requests are never denied with `RequestDisallowedByPolicy`, `audit` / `modify` /
-  `deployIfNotExists` effects do nothing, and `Microsoft.PolicyInsights` (policy states, remediations,
-  compliance summaries) is not implemented.
+- **Deny only, and no compliance data.** Rules are evaluated only under `evaluate: true`, and only the
+  `deny` and `denyAction` effects act. `audit` / `modify` / `deployIfNotExists` effects do nothing, and
+  `Microsoft.PolicyInsights` (policy states, remediations, compliance summaries) is not implemented.
 - **No built-in definitions.** Azure ships thousands of built-in definitions and initiatives; none are
   seeded. Tenant-rooted listings return an empty collection, tenant-rooted reads return
   `PolicyDefinitionNotFound` / `PolicySetDefinitionNotFound`, and built-in ids

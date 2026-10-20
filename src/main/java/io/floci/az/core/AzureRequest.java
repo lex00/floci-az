@@ -118,6 +118,13 @@ public record AzureRequest(
              resolved, armCall);
     }
 
+    /** Returns a copy of this request whose body is read from {@code body}. */
+    public AzureRequest withBody(InputStream body) {
+        return new AzureRequest(method, accountName, serviceType, resourcePath, headers, body,
+             queryParams, queryParamsMulti, authContext, secure, host, remoteAddress, rawPath, rawQuery, authority,
+             scope, armCall);
+    }
+
     /** Returns a copy of this request marked as inside the ARM request gate with {@code call}. */
     public AzureRequest withArm(ArmCall call) {
         return new AzureRequest(method, accountName, serviceType, resourcePath, headers, bodyStream,

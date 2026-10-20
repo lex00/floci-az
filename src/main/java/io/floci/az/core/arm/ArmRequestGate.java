@@ -7,6 +7,9 @@ import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -54,9 +57,10 @@ public class ArmRequestGate {
         if (request.armCall() != null) {
             return handler.apply(request);
         }
-        ArmCall call = call(request);
+        AzureRequest buffered = bufferWriteBody(request);
+        ArmCall call = call(buffered);
         if (rules.isEmpty()) {
-            return handler.apply(request.withArm(call));
+            return handler.apply(buffered.withArm(call));
         }
         int entered = 0;
         Response response = null;
@@ -68,7 +72,7 @@ public class ArmRequestGate {
                     return response;
                 }
             }
-            response = handler.apply(request.withArm(call));
+            response = handler.apply(buffered.withArm(call));
             return response;
         } finally {
             exit(call, response, entered);
@@ -77,9 +81,40 @@ public class ArmRequestGate {
 
     /** Builds the {@link ArmCall} the rules and the handler see for {@code request}. */
     public ArmCall call(AzureRequest request) {
+        String method = request.method() == null ? null : request.method().toUpperCase(Locale.ROOT);
         return new ArmCall(request.scope(), ArmResourceId.parse(request.resourcePath()).orElse(null),
-            null, request.method() == null ? null : request.method().toUpperCase(Locale.ROOT), null,
-            CallerPrincipal.objectId(request).orElse(null));
+            null, method, null, CallerPrincipal.objectId(request).orElse(null), writeBody(request, method));
+    }
+
+    /**
+     * The request with its {@code PUT} or {@code PATCH} body held in memory, so the rules can read it and the
+     * handler still finds it whole.
+     */
+    private static AzureRequest bufferWriteBody(AzureRequest request) {
+        if (!isWrite(request.method()) || request.bodyStream() == null) {
+            return request;
+        }
+        try {
+            return request.withBody(new ByteArrayInputStream(request.bodyStream().readAllBytes()));
+        } catch (IOException e) {
+            throw new UncheckedIOException("cannot read the ARM request body", e);
+        }
+    }
+
+    /** The JSON body of a buffered write, read without consuming it; null for other requests. */
+    private static Map<String, Object> writeBody(AzureRequest request, String method) {
+        if (!isWrite(method) || !(request.bodyStream() instanceof ByteArrayInputStream buffered)) {
+            return null;
+        }
+        try {
+            return ArmJson.parseBodyLenient(request);
+        } finally {
+            buffered.reset();
+        }
+    }
+
+    private static boolean isWrite(String method) {
+        return "PUT".equalsIgnoreCase(method) || "PATCH".equalsIgnoreCase(method);
     }
 
     /** Runs the exit hook of the first {@code entered} rules; {@code response} is null when something threw. */

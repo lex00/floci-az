@@ -37,9 +37,9 @@ import java.util.regex.Pattern;
  * service accepts. Shapes follow the policy spec {@code 2025-03-01} (exemptions:
  * {@code 2022-07-01-preview}); any {@code api-version} is accepted.
  *
- * <p>This is the control plane only. Definitions are stored and validated structurally, but no
- * policy rule is ever evaluated against resource requests, so nothing is denied, audited or
- * remediated, and there is no compliance state. Built-in definitions are not seeded: the tenant-rooted
+ * <p>Definitions are stored and validated structurally. {@link PolicyEnforcementRule} applies their
+ * {@code deny} and {@code denyAction} rules to ARM requests when evaluation is switched on. Nothing is
+ * audited or remediated, and there is no compliance state. Built-in definitions are not seeded: the tenant-rooted
  * built-in listings answer an empty collection and tenant-rooted {@code Microsoft.Authorization} ids
  * are accepted in references without validation.</p>
  */
@@ -783,7 +783,7 @@ public class PolicyHandler implements AzureServiceHandler, Resettable {
         return copy;
     }
 
-    private static Map<String, Object> propertiesOf(Map<String, Object> resource) {
+    static Map<String, Object> propertiesOf(Map<String, Object> resource) {
         return ArmJson.cast(resource.get("properties"));
     }
 
