@@ -574,14 +574,23 @@ public class BlobServiceHandler implements AzureServiceHandler, Resettable {
                             .toXmlResponse(Response.Status.NOT_FOUND.getStatusCode());
                 }
 
-                Response conditionFailure = validateBlobConditions(request, existing);
-                if (conditionFailure != null) {
-                    return conditionFailure;
+                // If-None-Match: * asks for create-only; Azure checks the lease first, then answers 409.
+                String ifNoneMatch = request.headers().getHeaderString(HttpHeaders.IF_NONE_MATCH);
+                boolean createOnly = existing.isPresent() && ifNoneMatch != null && "*".equals(ifNoneMatch.trim());
+                if (!createOnly) {
+                    Response conditionFailure = validateBlobConditions(request, existing);
+                    if (conditionFailure != null) {
+                        return conditionFailure;
+                    }
                 }
                 Response leaseFailure = leaseService.validateWrite(request,
                         objKey(request.accountName(), containerName, blobName));
                 if (leaseFailure != null) {
                     return leaseFailure;
+                }
+                if (createOnly) {
+                    return new AzureErrorResponse("BlobAlreadyExists", "The specified blob already exists.")
+                            .toXmlResponse(Response.Status.CONFLICT.getStatusCode());
                 }
 
                 Map<String, String> metadata = new HashMap<>();
