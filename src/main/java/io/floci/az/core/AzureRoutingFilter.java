@@ -70,6 +70,7 @@ public class AzureRoutingFilter {
             armRouter::routeArmMetadataEndpoints,
             this::routeMicrosoftGraph,
             armRouter::routeMonitor,
+            armRouter::routeRbac,
             armRouter::routeKeyVaultAtArmBase,
             armRouter::routeEmailAtArmBase,
             armRouter::routeArmProviders,

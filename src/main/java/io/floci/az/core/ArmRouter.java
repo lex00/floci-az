@@ -7,6 +7,7 @@ import io.floci.az.core.arm.ArmRequestGate;
 import io.floci.az.core.cloud.ScopeResolver;
 import io.floci.az.services.arm.ArmHandler;
 import io.floci.az.services.monitor.MonitorHandler;
+import io.floci.az.services.rbac.RbacPath;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -53,7 +54,7 @@ public class ArmRouter {
     private static final List<String> FORWARDED_HEADERS = List.of(HttpHeaders.AUTHORIZATION, "X-Forwarded-Proto");
 
     /** Service types the ARM stages dispatch to directly rather than through a handler's routing table. */
-    static final Set<String> LITERAL_ROUTE_SERVICE_TYPES = Set.of("monitor", "keyvault", "email", "arm");
+    static final Set<String> LITERAL_ROUTE_SERVICE_TYPES = Set.of("monitor", "rbac", "keyvault", "email", "arm");
 
     /**
      * A resolved ARM provider route: the pre-built {@code /providers/<namespace>/} marker, the service
@@ -96,8 +97,8 @@ public class ArmRouter {
         this.gate = gate;
         this.scopeResolver = scopeResolver;
         this.gated = (handler, request) -> this.gate.serve(request, handler::handle);
-        this.internalStages = List.of(this::routeMonitor, this::routeKeyVaultAtArmBase, this::routeEmailAtArmBase,
-            this::routeArmProviders, this::routeArmGeneric);
+        this.internalStages = List.of(this::routeMonitor, this::routeRbac, this::routeKeyVaultAtArmBase,
+            this::routeEmailAtArmBase, this::routeArmProviders, this::routeArmGeneric);
     }
 
     /** Assembles the provider table from every registered handler's {@link ServiceRoutes}. */
@@ -225,6 +226,17 @@ public class ArmRouter {
      * ARM base URL rather than to {@code *.vault.azure.net}. Route them to the Key Vault handler with a
      * fixed account name so both the provider and {@code kv_get} in the BATS tests share a namespace.
      */
+    /**
+     * Role definitions, role assignments and permissions at any scope. They run ahead of the provider routes
+     * because an assignment on a resource sits under that resource's own provider path.
+     */
+    RouteOutcome routeRbac(RoutingContext ctx) {
+        if (!RbacPath.matches(ctx.path())) {
+            return Fallthrough.TO_NEXT_STAGE;
+        }
+        return dispatcher.dispatchOrServiceDisabled(ctx, "rbac", "rbac", ctx.path(), gated);
+    }
+
     RouteOutcome routeKeyVaultAtArmBase(RoutingContext ctx) {
         if (!KEY_VAULT_COLLECTIONS.contains(ctx.firstSegment())) {
             return Fallthrough.TO_NEXT_STAGE;

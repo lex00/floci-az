@@ -286,6 +286,7 @@ public interface EmulatorConfig {
         ContainerAppsConfig    containerApps();
         PolicyConfig           policy();
         ResourceGraphConfig    resourceGraph();
+        RbacConfig             rbac();
 
         /** Shared Docker network for sidecar containers (Artemis, Redpanda, etc.). */
         Optional<String> dockerNetwork();
@@ -386,6 +387,12 @@ public interface EmulatorConfig {
      * assignments and exemptions. Control plane only; rules are stored, never evaluated.
      */
     interface PolicyConfig {
+        @WithDefault("true")
+        boolean enabled();
+    }
+
+    /** Azure RBAC under Microsoft.Authorization: role definitions, role assignments and the caller's permissions. */
+    interface RbacConfig {
         @WithDefault("true")
         boolean enabled();
     }

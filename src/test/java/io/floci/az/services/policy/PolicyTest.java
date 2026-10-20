@@ -577,10 +577,9 @@ class PolicyTest {
 
     @Test
     void otherMicrosoftAuthorizationResourcesAreNotClaimed() {
-        // Role assignments stay with the generic ARM handler, which does not implement them.
-        given().contentType("application/json").body("{\"properties\": {}}")
-                .when().put(SUB_SCOPE + AUTH + "/roleAssignments/11111111-1111-1111-1111-111111111111"
-                        + "?api-version=2022-04-01")
+        // Locks stay with the generic ARM handler, which does not implement them.
+        given().contentType("application/json").body("{\"properties\": {\"level\": \"CanNotDelete\"}}")
+                .when().put(SUB_SCOPE + AUTH + "/locks/no-delete?api-version=2020-05-01")
                 .then().statusCode(404);
 
         // A policy assignment scoped to another Microsoft.Authorization resource is still ours.

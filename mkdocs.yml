@@ -101,6 +101,7 @@ nav:
     - Communication Services Email: services/email.md
     - Managed Identity: services/managed-identity.md
     - Azure Policy: services/policy.md
+    - Azure RBAC: services/rbac.md
     - Azure Resource Graph: services/resource-graph.md
   - Contributing: contributing.md
   - Changelog: changelog.md
