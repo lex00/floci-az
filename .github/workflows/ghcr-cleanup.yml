@@ -1,0 +1,90 @@
+name: GHCR Cleanup
+
+# Fork automation: removes the untagged package versions that ghcr-publish.yml leaves
+# behind. Each publish pushes two platform manifests by digest plus two buildx
+# attestations, and only the merged index gets a tag, so every push to main adds four
+# permanently untagged versions.
+#
+# A blind "delete every untagged version" would break the published image: the
+# platform manifests an index points at are themselves untagged versions, and deleting
+# them makes ghcr.io/lex00/floci-az:latest unpullable on every architecture. This job
+# therefore reads each tagged index first and keeps everything it references.
+#
+# Needs a PAT in GHCR_CLEANUP_TOKEN with delete:packages. GITHUB_TOKEN cannot delete
+# versions of a user-owned package, only an organization-owned one, so without the
+# secret this job reports what it would remove and exits.
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'List what would be deleted without deleting it'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  cleanup:
+    name: prune untagged versions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Prune
+        env:
+          PACKAGE: floci-az
+          OWNER: ${{ github.repository_owner }}
+          API_TOKEN: ${{ secrets.GHCR_CLEANUP_TOKEN || secrets.GITHUB_TOKEN }}
+          CAN_DELETE: ${{ secrets.GHCR_CLEANUP_TOKEN != '' }}
+          DRY_RUN: ${{ github.event_name == 'schedule' && 'false' || inputs.dry_run }}
+        run: |
+          set -euo pipefail
+
+          api() { curl -sS -H "Authorization: Bearer $API_TOKEN" \
+                    -H "Accept: application/vnd.github+json" "$@"; }
+
+          registry_token=$(curl -sS \
+            "https://ghcr.io/token?scope=repository:${OWNER}/${PACKAGE}:pull&service=ghcr.io" \
+            | jq -r .token)
+
+          versions=$(api "https://api.github.com/user/packages/container/${PACKAGE}/versions?per_page=100" \
+            | jq -c '[.[] | {id, digest: .name, tags: .metadata.container.tags}]')
+
+          # Every digest an index references stays, whatever its own tag state.
+          referenced=$(for digest in $(echo "$versions" | jq -r '.[] | select(.tags | length > 0) | .digest'); do
+            curl -sS -H "Authorization: Bearer $registry_token" \
+              -H "Accept: application/vnd.oci.image.index.v1+json,application/vnd.docker.distribution.manifest.list.v2+json" \
+              "https://ghcr.io/v2/${OWNER}/${PACKAGE}/manifests/${digest}" \
+              | jq -r '(.manifests // [])[].digest'
+          done | sort -u)
+
+          echo "$referenced" | sed '/^$/d' > /tmp/referenced.txt
+          echo "Tagged indexes reference $(wc -l < /tmp/referenced.txt | tr -d ' ') child manifests."
+
+          doomed=$(echo "$versions" | jq -r --rawfile ref /tmp/referenced.txt '
+            ($ref | split("\n") | map(select(. != ""))) as $keep
+            | .[] | select((.tags | length) == 0) | select(.digest as $d | $keep | index($d) | not)
+            | "\(.id) \(.digest)"')
+
+          if [ -z "$doomed" ]; then
+            echo "Nothing to prune."
+            exit 0
+          fi
+          echo "Unreferenced and untagged:"
+          echo "$doomed"
+
+          if [ "$CAN_DELETE" != "true" ]; then
+            echo "::warning::GHCR_CLEANUP_TOKEN is not set, so nothing was deleted. A PAT with delete:packages is required for a user-owned package."
+            exit 0
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "Dry run, nothing deleted."
+            exit 0
+          fi
+          echo "$doomed" | while read -r id _; do
+            api -X DELETE "https://api.github.com/user/packages/container/${PACKAGE}/versions/${id}" \
+              -o /dev/null -w "deleted %{http_code} version ${id}\n"
+          done
