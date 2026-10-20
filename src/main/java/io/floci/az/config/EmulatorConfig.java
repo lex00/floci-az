@@ -395,6 +395,16 @@ public interface EmulatorConfig {
     interface RbacConfig {
         @WithDefault("true")
         boolean enabled();
+
+        /**
+         * Whether ARM requests whose bearer token names a principal are held to that principal's role
+         * assignments, answering {@code 403 AuthorizationFailed} for an action no assignment allows.
+         */
+        @WithDefault("false")
+        boolean enforce();
+
+        /** Object ids exempt from {@link #enforce()}, such as the principal that sets up the estate. */
+        Optional<List<String>> adminPrincipals();
     }
 
     /** Azure Resource Graph: KQL queries over the generic resource index and the resource containers. */

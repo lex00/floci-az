@@ -78,7 +78,8 @@ public class ArmRequestGate {
     /** Builds the {@link ArmCall} the rules and the handler see for {@code request}. */
     public ArmCall call(AzureRequest request) {
         return new ArmCall(request.scope(), ArmResourceId.parse(request.resourcePath()).orElse(null),
-            null, request.method() == null ? null : request.method().toUpperCase(Locale.ROOT), null);
+            null, request.method() == null ? null : request.method().toUpperCase(Locale.ROOT), null,
+            CallerPrincipal.objectId(request).orElse(null));
     }
 
     /** Runs the exit hook of the first {@code entered} rules; {@code response} is null when something threw. */

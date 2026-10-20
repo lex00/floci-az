@@ -326,6 +326,8 @@ floci-az:
       enabled: true       # Microsoft.Authorization policy definitions, set definitions, assignments and exemptions (control plane only, no rule evaluation)
     rbac:
       enabled: true       # Microsoft.Authorization role definitions, role assignments (with ABAC conditions) and permissions
+      enforce: false      # FLOCI_AZ_SERVICES_RBAC_ENFORCE: hold callers with a token oid to their role assignments (403 AuthorizationFailed)
+      # admin-principals: [] # FLOCI_AZ_SERVICES_RBAC_ADMIN_PRINCIPALS: object ids exempt from enforcement
     resource-graph:
       enabled: true       # Microsoft.ResourceGraph queries (a KQL subset over Resources and ResourceContainers)
 

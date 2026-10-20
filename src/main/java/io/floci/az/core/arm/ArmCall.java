@@ -11,6 +11,13 @@ import io.floci.az.core.cloud.ScopeContext;
  *                           until resource types are registered
  * @param method             the HTTP method, uppercase
  * @param normalizedLocation the request body's location in canonical form; null until the location rule reads it
+ * @param callerObjectId     the {@code oid} claim of the request's bearer token, or null when it carries none
  */
-public record ArmCall(ScopeContext scope, ArmResourceId id, String type, String method, String normalizedLocation) {
+public record ArmCall(ScopeContext scope, ArmResourceId id, String type, String method, String normalizedLocation,
+                      String callerObjectId) {
+
+    /** A call whose caller is not known. */
+    public ArmCall(ScopeContext scope, ArmResourceId id, String type, String method, String normalizedLocation) {
+        this(scope, id, type, method, normalizedLocation, null);
+    }
 }

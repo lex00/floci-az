@@ -1,4 +1,4 @@
-package io.floci.az.services.rbac;
+package io.floci.az.core.arm;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;

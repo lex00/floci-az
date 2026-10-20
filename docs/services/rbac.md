@@ -65,6 +65,23 @@ allow at the scope: one entry per assignment at the scope or above it, with the 
 claim of the bearer token. Its signature is not checked, since ARM authentication is not enforced. A
 request without a token holds nothing.
 
+## Enforcement
+
+With `floci-az.services.rbac.enforce` on, an ARM request whose bearer token carries an `oid` is held to
+that principal's role assignments. floci-az names the request's operation as Azure does, such as
+`Microsoft.Storage/storageAccounts/write` or `Microsoft.Resources/subscriptions/resourceGroups/read`. The
+caller needs an assignment at the target's scope or above whose role lists a matching action and no
+matching `notActions`. Otherwise the request is refused before its handler runs:
+
+```json
+{"error": {"code": "AuthorizationFailed", "message": "The client '{oid}' with object id '{oid}' does not have authorization to perform action 'Microsoft.Storage/storageAccounts/write' over scope '{scope}' or the scope is invalid. If access was recently granted, please refresh your credentials."}}
+```
+
+Requests without a token are not checked, and neither are the principals listed in
+`floci-az.services.rbac.admin-principals`. Use either one to set up the estate and its assignments
+before a held credential runs. The tenant and subscription listings stay open. Data actions and ABAC
+conditions belong to the data plane, so they play no part in this check.
+
 ## Intentional deviations
 
 - Principals are not looked up in Entra, so any `principalId` is accepted, and `principalType` defaults to
@@ -78,3 +95,5 @@ request without a token holds nothing.
 | Key | Environment variable | Default |
 |---|---|---|
 | `floci-az.services.rbac.enabled` | `FLOCI_AZ_SERVICES_RBAC_ENABLED` | `true` |
+| `floci-az.services.rbac.enforce` | `FLOCI_AZ_SERVICES_RBAC_ENFORCE` | `false` |
+| `floci-az.services.rbac.admin-principals` | `FLOCI_AZ_SERVICES_RBAC_ADMIN_PRINCIPALS` | none (comma-separated object ids) |

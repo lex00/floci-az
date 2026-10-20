@@ -4,6 +4,7 @@ import io.floci.az.core.ArmRouter;
 import io.floci.az.core.AzureRequest;
 import io.floci.az.core.cloud.ScopeSource;
 import io.floci.az.services.arm.ArmHandler;
+import io.floci.az.services.rbac.RbacEnforcementRule;
 import io.quarkus.test.junit.QuarkusTest;
 import io.quarkus.test.junit.QuarkusTestProfile;
 import io.quarkus.test.junit.TestProfile;
@@ -80,10 +81,11 @@ class ArmRequestGateCoverageTest {
 
     @Test
     void theRecordingRuleRunsAheadOfTheProductionRules() {
-        assertEquals(3, gate.rules().size(), "rules: " + gate.rules());
+        assertEquals(4, gate.rules().size(), "rules: " + gate.rules());
         assertInstanceOf(RecordingArmRequestRule.class, gate.rules().getFirst());
         assertInstanceOf(SubscriptionRule.class, gate.rules().get(1));
-        assertInstanceOf(ResourceGroupRule.class, gate.rules().get(2));
+        assertInstanceOf(RbacEnforcementRule.class, gate.rules().get(2));
+        assertInstanceOf(ResourceGroupRule.class, gate.rules().get(3));
     }
 
     // ── Requests floci-az makes to itself ───────────────────────────────────────
