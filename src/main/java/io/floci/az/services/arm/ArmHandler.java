@@ -70,6 +70,10 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
 
     private static final String DEFAULT_FUNCTIONS_ACCOUNT = "devstoreaccount1";
 
+    /** The namespaces ArmHandler serves inline, ahead of its provider lane. */
+    private static final List<String> INLINE_NAMESPACES = List.of(
+            "Microsoft.Storage", "Microsoft.KeyVault", "Microsoft.Web", "Microsoft.Network");
+
     /** Storage account properties the service sets; a client's values for them are ignored. */
     private static final Set<String> STORAGE_READ_ONLY_PROPERTIES = Set.of(
             "provisioningState", "isHnsEnabled", "primaryEndpoints", "primaryLocation", "statusOfPrimary",
@@ -106,13 +110,17 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
     /** Resource groups: their own operations and the cascade a delete runs. */
     private final ResourceGroupService resourceGroups;
 
+    /** Resources of provider namespaces no handler claims. */
+    private final GenericResourceStore genericResources;
+
     @Inject
     public ArmHandler(EmulatorConfig config, BlobServiceHandler blobHandler, QueueServiceHandler queueHandler,
                       FunctionsServiceHandler functionsHandler, ApiManagementHandler apiManagementHandler,
                       NetworkHandler networkHandler, ManagedIdentityHandler managedIdentityHandler,
                       Instance<ArmProviderService> providerServices,
                       Instance<ResourceIndexContributor> resourceIndexContributors, ArmRequestGate gate,
-                      AzureDirectory directory, ResourceGroupService resourceGroups) {
+                      AzureDirectory directory, ResourceGroupService resourceGroups,
+                      GenericResourceStore genericResources) {
         this.config               = config;
         this.blobHandler          = blobHandler;
         this.queueHandler         = queueHandler;
@@ -125,6 +133,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         this.gate                 = gate;
         this.directory            = directory;
         this.resourceGroups       = resourceGroups;
+        this.genericResources     = genericResources;
     }
 
     /**
@@ -291,6 +300,11 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return handleResourceGroupBranch(req, path, method);
         }
 
+        // ── Subscription-level resources of unclaimed namespaces ─────────────
+        if (path.startsWith("subscriptions/") && path.contains("/providers/")) {
+            return handleGeneric(req, path, method);
+        }
+
         return armNotFound(path);
     }
 
@@ -424,7 +438,16 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         if (provider != null) {
             return provider.armEnabled() ? provider.handleArm(req, path, method, sub) : armNotFound(path);
         }
-        return armNotFound(path);
+        return handleGeneric(req, path, method);
+    }
+
+    /** Hands a path in a namespace no handler claims to the generic store; anything else is not found. */
+    private Response handleGeneric(AzureRequest req, String path, String method) {
+        List<String> claimed = new ArrayList<>(INLINE_NAMESPACES);
+        claimed.addAll(providerLane.keySet());
+        return genericResources.unclaimed(path, claimed)
+                .map(id -> genericResources.handle(req, id, method))
+                .orElseGet(() -> armNotFound(path));
     }
 
     /** The {@code Microsoft.X} namespace segment immediately after {@code /providers/}, or "" if none. */

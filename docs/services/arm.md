@@ -276,6 +276,27 @@ in deprovisioning state and cannot perform this operation.` (Azure documents the
 `ResourceGroupBeingDeleted` code, with the advice to wait for the deletion to complete, but not its
 status or message).
 
+## Resources of other provider namespaces
+
+A generic store keeps resources of provider namespaces that no floci-az service declares, such as
+those written through `azapi`. Ids compare case-insensitively, and responses echo the casing of the
+first `PUT`.
+
+- `PUT` answers `201` when it creates the resource and `200` when it replaces it. It keeps `location`,
+  `tags`, `properties`, `managedBy`, `kind`, `sku`, `plan`, `identity`, `zones` and `extendedLocation`.
+- `GET` and `HEAD` answer `404 ResourceNotFound` for a resource the store does not hold.
+- `PATCH` replaces each of those fields the body carries and merges the entries of `properties`.
+- `DELETE` removes the resource and its nested children with `200`. It answers `204` when the store
+  held nothing.
+- A nested child whose parent does not exist is refused with `404 ParentResourceNotFound`.
+- `GET` on a collection lists the resources of that type under its parent. At subscription scope, a
+  top-level type lists every resource of the type in the subscription.
+- Top-level resources appear in both `/resources` listings, with `kind`, `managedBy` and `sku`.
+
+The store holds no type knowledge, so it adds no server-set property such as `provisioningState` and
+runs no `POST` actions. Extension resources stay outside it. A namespace any service declares, such as
+`Microsoft.Authorization`, stays with that service even for types the service does not model.
+
 ## Resource names across subscriptions
 
 Two subscriptions can use the same resource-group name, and most resources then coexist: each
