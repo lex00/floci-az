@@ -208,8 +208,29 @@ public class TlsConfigSource implements ConfigSource {
                 "localhost.floci-az.io", "*.localhost.floci-az.io",
                 "*.vault.azure.net", "*.managedhsm.azure.net", "*.azurecr.io",
                 "host.docker.internal"));
+        all.addAll(storageSans(resolveProperty("floci-az.storage-suffix", "")));
         all.addAll(customHostnames);
         return all;
+    }
+
+    /**
+     * Wildcards for host-style storage addressing: {@code <account>.blob.localhost} always, and
+     * {@code <account>.blob.<suffix>} when {@code floci-az.storage-suffix} is set. A wildcard covers one label, so
+     * each service needs its own entry. A port on the suffix is dropped: a SAN names a host.
+     */
+    static List<String> storageSans(String storageSuffix) {
+        List<String> hosts = new ArrayList<>(List.of("localhost"));
+        String suffixHost = storageSuffix.replaceFirst(":\\d+$", "");
+        if (!suffixHost.isBlank() && !hosts.contains(suffixHost)) {
+            hosts.add(suffixHost);
+        }
+        List<String> sans = new ArrayList<>();
+        for (String host : hosts) {
+            for (String service : List.of("blob", "dfs", "queue", "table")) {
+                sans.add("*." + service + "." + host);
+            }
+        }
+        return sans;
     }
 
     private List<String> extractCustomHostnames() {

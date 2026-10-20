@@ -659,6 +659,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         // Return domain-based storage endpoints so the azurerm provider can parse the account name.
         // The port is taken from the configured base URL so data-plane requests reach our emulator.
         String portStr = storagePortString();
+        String suffix = config.effectiveStorageSuffix();
 
         Map<String, Object> resource = new LinkedHashMap<>();
         resource.put("_sub", sub);
@@ -675,10 +676,10 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
                 "provisioningState", "Succeeded",
                 "isHnsEnabled", hnsEnabled,
                 "primaryEndpoints", Map.of(
-                        "blob",  "http://" + account + ".blob.core.windows.net" + portStr + "/",
-                        "dfs",   "http://" + account + ".dfs.core.windows.net" + portStr + "/",
-                        "queue", "http://" + account + ".queue.core.windows.net" + portStr + "/",
-                        "table", "http://" + account + ".table.core.windows.net" + portStr + "/"),
+                        "blob",  "http://" + account + ".blob." + suffix + portStr + "/",
+                        "dfs",   "http://" + account + ".dfs." + suffix + portStr + "/",
+                        "queue", "http://" + account + ".queue." + suffix + portStr + "/",
+                        "table", "http://" + account + ".table." + suffix + portStr + "/"),
                 "primaryLocation", location,
                 "statusOfPrimary", "available",
                 "supportsHttpsTrafficOnly", false,

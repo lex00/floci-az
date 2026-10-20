@@ -74,7 +74,7 @@ public class AzureIdentityController {
                 "tenant",           "common"
             ),
             "suffixes", Map.of(
-                "storage",     "core.windows.net",
+                "storage",     config.effectiveStorageSuffix(),
                 "keyVaultDns", "vault.azure.net"
             )
         )).build();

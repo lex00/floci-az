@@ -22,6 +22,18 @@ public interface EmulatorConfig {
      */
     Optional<String> hostname();
 
+    /**
+     * When set, the storage DNS suffix {@code /metadata/endpoints} and storage account endpoints report in place of
+     * {@code core.windows.net}, such as {@code localhost:4577}. Clients then address an account as
+     * {@code <account>.blob.<suffix>}, and the self-signed certificate covers those hosts.
+     */
+    Optional<String> storageSuffix();
+
+    /** The storage DNS suffix clients are told to use: {@link #storageSuffix()}, or Azure's own. */
+    default String effectiveStorageSuffix() {
+        return storageSuffix().filter(suffix -> !suffix.isBlank()).orElse("core.windows.net");
+    }
+
     DnsConfig dns();
 
     /**

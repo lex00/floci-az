@@ -12,6 +12,12 @@ floci-az:
   # (e.g. blob SAS URLs, function invoke URLs).
   # hostname: myhost.internal
 
+  # When set, the storage DNS suffix /metadata/endpoints and storage account
+  # endpoints report instead of core.windows.net. Clients such as azurerm then
+  # address an account as <account>.blob.<suffix>, and the self-signed
+  # certificate covers *.blob.<suffix> and the other storage services.
+  # storage-suffix: localhost:4577
+
   auth:
     # Not enforced yet: every value, strict included, accepts any credentials
     # without SharedKey signature validation (see the note below the table).
