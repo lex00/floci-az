@@ -31,6 +31,10 @@ import java.util.concurrent.ConcurrentHashMap;
  * <p>A {@code PUT} answers 201 when it creates and 200 when it replaces, and keeps {@link #RESOURCE_FIELDS}.
  * A {@code PATCH} replaces each of those the body carries and merges the entries of {@code properties}.
  * A nested child needs its parent, and a {@code DELETE} takes the resource's children with it.
+ *
+ * <p>Resources sit under a subscription, or at tenant level ({@code /providers/Microsoft.Management/managementGroups/{name}}).
+ * A tenant-level resource can carry extension resources of its own, such as ones at a management group's scope;
+ * those need the resource they extend, and go with it.
  */
 @ApplicationScoped
 public class GenericResourceStore implements ResourceIndexContributor, Resettable {
@@ -57,8 +61,8 @@ public class GenericResourceStore implements ResourceIndexContributor, Resettabl
      */
     public Optional<ArmResourceId> unclaimed(String path, List<String> inlineNamespaces) {
         Optional<ArmResourceId> parsed = ArmResourceId.parse(path)
-                .filter(id -> id.subscriptionId() != null && id.providerNamespace() != null && !id.types().isEmpty())
-                .filter(id -> !id.isExtension());
+                .filter(id -> id.providerNamespace() != null && !id.types().isEmpty())
+                .filter(id -> id.subscriptionId() != null ? !id.isExtension() : isTenantLevel(id));
         if (parsed.isEmpty()) {
             return parsed;
         }
@@ -75,6 +79,12 @@ public class GenericResourceStore implements ResourceIndexContributor, Resettabl
             }
         }
         return parsed;
+    }
+
+    /** A tenant-level resource, or an extension of one (a resource at a management group's scope). */
+    private static boolean isTenantLevel(ArmResourceId id) {
+        return id.id().toLowerCase(Locale.ROOT).startsWith("/providers/")
+                && (id.scope() == null || id.isExtension() && id.scope().scope() == null);
     }
 
     public Response handle(AzureRequest req, ArmResourceId id, String method) {
@@ -98,6 +108,10 @@ public class GenericResourceStore implements ResourceIndexContributor, Resettabl
         if (id.names().size() > 1 && parent != null && !resources.containsKey(parent.canonicalKey())) {
             return ArmErrors.error(404, "ParentResourceNotFound", "Failed to perform 'write' on resource(s) of type '"
                     + id.typePath() + "', because the parent resource '" + parent.id() + "' could not be found.");
+        }
+        if (id.isExtension() && id.subscriptionId() == null && !resources.containsKey(id.scope().canonicalKey())) {
+            return ArmErrors.notFound("The scope '" + id.scope().id() + "' of resource '" + id.id()
+                    + "' was not found.");
         }
         Map<String, Object> existing = resources.get(id.canonicalKey());
         Map<String, Object> body = ArmJson.parseBodyLenient(req);
@@ -161,11 +175,17 @@ public class GenericResourceStore implements ResourceIndexContributor, Resettabl
             if (id == null || !type.equalsIgnoreCase(id.typePath())) {
                 continue;
             }
-            boolean subscriptionWide = collection.resourceGroup() == null && collection.types().size() == 1;
-            boolean matches = subscriptionWide
-                    ? collection.subscriptionId().equalsIgnoreCase(id.subscriptionId())
-                    : parent != null && id.parent() != null
-                            && parent.canonicalKey().equals(id.parent().canonicalKey());
+            boolean topLevel = collection.resourceGroup() == null && collection.types().size() == 1
+                    && !collection.isExtension();
+            boolean matches;
+            if (topLevel && collection.subscriptionId() == null) {
+                matches = id.subscriptionId() == null && id.scope() == null;
+            } else if (topLevel) {
+                matches = collection.subscriptionId().equalsIgnoreCase(id.subscriptionId());
+            } else {
+                matches = parent != null && id.parent() != null
+                        && parent.canonicalKey().equals(id.parent().canonicalKey());
+            }
             if (matches) {
                 value.add(resource);
             }

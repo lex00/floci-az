@@ -313,14 +313,15 @@ public class ArmRouter {
     }
 
     /**
-     * ARM general management-plane paths ({@code subscriptions/{sub}/...}, {@code tenants/...}):
-     * resource groups, storage accounts, key vaults, etc. that the more specific provider stages above
-     * did not claim. {@link ArmHandler} serves them itself or hands them to its provider lane.
+     * ARM general management-plane paths ({@code subscriptions/{sub}/...}, {@code tenants/...}, and tenant-level
+     * {@code providers/...}): resource groups, storage accounts, key vaults, management groups, etc. that the
+     * more specific provider stages above did not claim. {@link ArmHandler} serves them itself or hands them to
+     * its provider lane.
      */
     RouteOutcome routeArmGeneric(RoutingContext ctx) {
         String path = ctx.path();
         boolean isArmPath = path.startsWith("subscriptions/") || path.equals("subscriptions")
-            || path.startsWith("tenants/") || path.equals("tenants");
+            || path.startsWith("tenants/") || path.equals("tenants") || path.startsWith("providers/");
         if (!isArmPath) {
             return Fallthrough.TO_NEXT_STAGE;
         }

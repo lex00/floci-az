@@ -305,8 +305,8 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return handleResourceGroupBranch(req, path, method);
         }
 
-        // ── Subscription-level resources of unclaimed namespaces ─────────────
-        if (path.startsWith("subscriptions/") && path.contains("/providers/")) {
+        // ── Subscription- and tenant-level resources of unclaimed namespaces ─
+        if (path.startsWith("subscriptions/") && path.contains("/providers/") || path.startsWith("providers/")) {
             return handleGeneric(req, path, method);
         }
 

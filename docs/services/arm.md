@@ -295,9 +295,14 @@ first `PUT`.
 - `GET` on a collection lists the resources of that type under its parent. At subscription scope, a
   top-level type lists every resource of the type in the subscription.
 - Top-level resources appear in both `/resources` listings, with `kind`, `managedBy` and `sku`.
+- Tenant-level resources such as `/providers/Microsoft.Management/managementGroups/{name}` or
+  `/providers/Microsoft.Subscription/aliases/{name}` are kept the same way. `GET` on a tenant-level
+  collection lists the tenant-level resources of that type.
+- A resource at the scope of a tenant-level resource, such as one under a management group's
+  `/providers/...`, needs that resource (`404 ResourceNotFound` without it) and is deleted with it.
 
 The store holds no type knowledge, so it adds no server-set property such as `provisioningState` and
-runs no `POST` actions. Extension resources stay outside it. A namespace any service declares, such as
+runs no `POST` actions. Extension resources under a subscription stay outside it. A namespace any service declares, such as
 `Microsoft.Authorization`, stays with that service even for types the service does not model.
 
 ## Resource names across subscriptions
