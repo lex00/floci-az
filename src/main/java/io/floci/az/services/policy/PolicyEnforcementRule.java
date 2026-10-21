@@ -35,7 +35,11 @@ import java.util.Optional;
  * <p>An assignment applies when its scope covers the target, no {@code notScopes} entry does, its
  * {@code enforcementMode} is {@code Default}, and no unexpired exemption covers it. A {@code PATCH} is judged on
  * the resource it would leave: the indexed resource with the body's fields over it. A {@code DELETE} is judged on
- * the indexed resource. {@code Indexed} definitions skip resource groups, as Azure's do.
+ * the indexed resource. {@code Indexed} definitions evaluate only the types that take tags and a location
+ * ({@link IndexedTypes}), so they skip resource groups and child types such as subnets, as Azure's do.
+ *
+ * <p>Deleting a resource group is also judged on each resource in it: a {@code denyAction} that refuses deleting
+ * one of them refuses deleting the group, unless its {@code cascadeBehaviors.resourceGroup} is {@code allow}.
  *
  * <p>A rule the {@link PolicyEvaluator} cannot read, or a definition floci-az does not hold (built-ins are not
  * seeded), refuses the request too: the rule fails closed. Effects other than the two above are never
@@ -51,6 +55,14 @@ public class PolicyEnforcementRule implements ArmRequestRule {
     public static final int ORDER = 3;
 
     private static final String RESOURCE_GROUP_TYPE = "Microsoft.Resources/subscriptions/resourceGroups";
+
+    /** What the request does to the resource being judged. */
+    private enum Action {
+        WRITE,
+        DELETE,
+        /** The resource sits in a resource group the request deletes. */
+        GROUP_DELETE
+    }
     private static final String EXEMPTIONS_MARKER = "/providers/microsoft.authorization/policyexemptions/";
 
     private final PolicyStore store;
@@ -84,13 +96,43 @@ public class PolicyEnforcementRule implements ArmRequestRule {
             return ArmVerdict.proceed();
         }
         Map<String, Object> resource = resource(call, type.get());
+        Optional<Response> refusal = applyAll(resource, write ? Action.WRITE : Action.DELETE);
+        if (refusal.isEmpty() && delete && RESOURCE_GROUP_TYPE.equals(type.get())) {
+            refusal = groupResources(call.id()).stream()
+                    .map(member -> applyAll(member, Action.GROUP_DELETE))
+                    .flatMap(Optional::stream)
+                    .findFirst();
+        }
+        return refusal.map(ArmVerdict::respond).orElseGet(ArmVerdict::proceed);
+    }
+
+    private Optional<Response> applyAll(Map<String, Object> resource, Action action) {
         for (Map<String, Object> assignment : store.listAssignments()) {
-            Optional<Response> refusal = apply(assignment, resource, write);
+            Optional<Response> refusal = apply(assignment, resource, action);
             if (refusal.isPresent()) {
-                return ArmVerdict.respond(refusal.get());
+                return refusal;
             }
         }
-        return ArmVerdict.proceed();
+        return Optional.empty();
+    }
+
+    /** The resources in the resource group {@code group} names, as the evaluator reads them. */
+    private List<Map<String, Object>> groupResources(ArmResourceId group) {
+        List<Map<String, Object>> members = new ArrayList<>();
+        for (Map<String, Object> entry : arm.get().subscriptionResources(group.subscriptionId())) {
+            Optional<ArmResourceId> id = ArmResourceId.parse(String.valueOf(entry.get("id")));
+            if (id.isEmpty() || !group.resourceGroup().equalsIgnoreCase(id.get().resourceGroup())
+                    || id.get().providerNamespace() == null) {
+                continue;
+            }
+            Map<String, Object> member = new LinkedHashMap<>(entry);
+            member.put("id", id.get().id());
+            member.put("name", id.get().name());
+            member.put("fullName", String.join("/", id.get().names()));
+            member.put("type", id.get().typePath());
+            members.add(member);
+        }
+        return members;
     }
 
     /** The type a policy sees for the target, or empty for a path policy does not govern. */
@@ -139,7 +181,7 @@ public class PolicyEnforcementRule implements ArmRequestRule {
     }
 
     /** The refusal {@code assignment} makes of the request, or empty when it lets the request through. */
-    private Optional<Response> apply(Map<String, Object> assignment, Map<String, Object> resource, boolean write) {
+    private Optional<Response> apply(Map<String, Object> assignment, Map<String, Object> resource, Action action) {
         Map<String, Object> properties = PolicyHandler.propertiesOf(assignment);
         String target = String.valueOf(resource.get("id"));
         if (!covers(String.valueOf(properties.get("scope")), target)
@@ -164,18 +206,18 @@ public class PolicyEnforcementRule implements ArmRequestRule {
         String definitionId = String.valueOf(properties.get("policyDefinitionId"));
         try {
             if (definitionId.toLowerCase(Locale.ROOT).contains("/policysetdefinitions/")) {
-                return applySet(assignment, definitionId, assigned, exemptReferences, resource, write);
+                return applySet(assignment, definitionId, assigned, exemptReferences, resource, action);
             }
-            return judge(assignment, definitionId, null, assigned, resource, write);
+            return judge(assignment, definitionId, null, assigned, resource, action);
         } catch (PolicyEvaluator.NotEvaluable e) {
             LOG.infov("Policy: assignment {0} cannot be evaluated, refusing: {1}", assignmentId, e.getMessage());
-            return Optional.of(refusal(assignment, definitionId, resource, write,
+            return Optional.of(refusal(assignment, definitionId, resource, action,
                     "floci-az cannot evaluate this policy, so it refuses the request: " + e.getMessage()));
         }
     }
 
     private Optional<Response> applySet(Map<String, Object> assignment, String setId, Map<String, Object> assigned,
-                                        List<String> exemptReferences, Map<String, Object> resource, boolean write) {
+                                        List<String> exemptReferences, Map<String, Object> resource, Action action) {
         Map<String, Object> set = store.getSetDefinition(setId);
         if (set == null) {
             throw new PolicyEvaluator.NotEvaluable("the policy set definition '" + setId + "' is not held");
@@ -194,7 +236,7 @@ public class PolicyEnforcementRule implements ArmRequestRule {
             Map<String, Object> referenceValues = new LinkedHashMap<>();
             values(reference.get("parameters")).forEach((name, value) -> referenceValues.put(name, setScope.resolve(value)));
             Optional<Response> refusal = judge(assignment, String.valueOf(reference.get("policyDefinitionId")),
-                    referenceId, referenceValues, resource, write);
+                    referenceId, referenceValues, resource, action);
             if (refusal.isPresent()) {
                 return refusal;
             }
@@ -204,7 +246,7 @@ public class PolicyEnforcementRule implements ArmRequestRule {
 
     /** Whether one definition refuses the request, given the values its parameters receive. */
     private Optional<Response> judge(Map<String, Object> assignment, String definitionId, String referenceId,
-                                     Map<String, Object> assigned, Map<String, Object> resource, boolean write) {
+                                     Map<String, Object> assigned, Map<String, Object> resource, Action action) {
         Map<String, Object> definition = store.getDefinition(definitionId);
         if (definition == null) {
             throw new PolicyEvaluator.NotEvaluable("the policy definition '" + definitionId + "' is not held");
@@ -214,28 +256,47 @@ public class PolicyEnforcementRule implements ArmRequestRule {
         if (!mode.equalsIgnoreCase("All") && !mode.equalsIgnoreCase("Indexed")) {
             return Optional.empty();
         }
-        if (mode.equalsIgnoreCase("Indexed") && RESOURCE_GROUP_TYPE.equals(resource.get("type"))) {
+        if (mode.equalsIgnoreCase("Indexed") && !indexed(resource)) {
             return Optional.empty();
         }
         Map<String, Object> rule = mapOf(properties.get("policyRule"));
         Map<String, Object> then = mapOf(rule.get("then"));
         PolicyEvaluator evaluator = new PolicyEvaluator(withDefaults(properties.get("parameters"), assigned), resource);
         String effect = String.valueOf(evaluator.resolve(then.get("effect"))).toLowerCase(Locale.ROOT);
-        boolean blocks = write
-                ? effect.equals("deny")
-                : effect.equals("denyaction") && strings(mapOf(then.get("details")).get("actionNames")).stream()
-                        .anyMatch("delete"::equalsIgnoreCase);
+        Map<String, Object> details = mapOf(then.get("details"));
+        boolean blocks = switch (action) {
+            case WRITE -> effect.equals("deny");
+            case DELETE -> deniesDelete(effect, details);
+            case GROUP_DELETE -> deniesDelete(effect, details) && !"allow".equalsIgnoreCase(
+                    String.valueOf(evaluator.resolve(mapOf(details.get("cascadeBehaviors")).get("resourceGroup"))));
+        };
         if (!blocks || !evaluator.matches(rule.get("if"))) {
             return Optional.empty();
         }
         String message = nonComplianceMessage(assignment, referenceId);
         LOG.infov("Policy: {0} refused {1}", assignment.get("id"), resource.get("id"));
-        return Optional.of(refusal(assignment, definitionId, resource, write, message));
+        return Optional.of(refusal(assignment, definitionId, resource, action, message));
+    }
+
+    private static boolean deniesDelete(String effect, Map<String, Object> details) {
+        return effect.equals("denyaction")
+                && strings(details.get("actionNames")).stream().anyMatch("delete"::equalsIgnoreCase);
+    }
+
+    /** Whether an {@code Indexed} definition evaluates {@code resource}: a type that takes tags and a location. */
+    private static boolean indexed(Map<String, Object> resource) {
+        String type = String.valueOf(resource.get("type"));
+        if (RESOURCE_GROUP_TYPE.equals(type)) {
+            return false;
+        }
+        return ArmResourceId.parse(String.valueOf(resource.get("id")))
+                .map(id -> IndexedTypes.evaluated(id, type))
+                .orElse(true);
     }
 
     /** Azure's {@code RequestDisallowedByPolicy} answer, naming the assignment and definition. */
     private static Response refusal(Map<String, Object> assignment, String definitionId, Map<String, Object> resource,
-                                    boolean write, String reason) {
+                                    Action action, String reason) {
         String name = String.valueOf(resource.get("name"));
         Map<String, Object> identifiers = new LinkedHashMap<>();
         identifiers.put("policyAssignment", Map.of("name", String.valueOf(assignment.get("name")),
@@ -247,6 +308,7 @@ public class PolicyEnforcementRule implements ArmRequestRule {
         } catch (JsonProcessingException e) {
             identifierText = String.valueOf(identifiers);
         }
+        boolean write = action == Action.WRITE;
         String subject = write ? "Resource '" + name + "'" : "Deletion of resource '" + name + "'";
         String message = reason == null
                 ? subject + " was disallowed by policy. Policy identifiers: '" + identifierText + "'."

@@ -186,9 +186,12 @@ lists `policyDefinitionReferenceIds` skips only those definitions of an initiati
 - `deny` refuses a `PUT` or `PATCH` that the rule's `if` matches. A `PUT` is judged on its body, and a `PATCH`
   on the resource it would leave: the stored resource with the body's fields over it.
 - `denyAction` with `delete` in `details.actionNames` refuses a `DELETE` of a resource the rule matches.
+  Deleting a resource group is refused too when such a rule matches a resource in it, unless the rule's
+  `details.cascadeBehaviors.resourceGroup` is `allow`. The default is `deny`, as in Azure.
 - Other effects never block a request, so they are not evaluated.
-- `Indexed` definitions skip resource groups. Data-plane modes (`Microsoft.KeyVault.Data` and the rest) are
-  skipped.
+- `Indexed` definitions evaluate only the types that take tags and a location. They skip resource groups,
+  extension resources and nested child types such as subnets, except child types that carry both, such as
+  SQL databases and web app slots. Data-plane modes (`Microsoft.KeyVault.Data` and the rest) are skipped.
 
 A refused request answers `403 RequestDisallowedByPolicy`. The message carries the assignment's
 non-compliance message when it has one. `additionalInfo` holds a `PolicyViolation` entry that names the
