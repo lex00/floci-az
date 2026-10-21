@@ -37,6 +37,7 @@ Floci-AZ provides emulation for several core Azure services.
 | **Azure Policy** | ARM path (`Microsoft.Authorization/policy*`) | ✅ Policy definitions, set definitions, assignments and exemptions at management-group, subscription, resource-group and resource scope; opt-in `deny` and `denyAction` evaluation of a rule subset; no compliance data, no built-in definitions |
 | **Azure RBAC** | ARM path (`Microsoft.Authorization/roleDefinitions`, `roleAssignments`, `permissions`) | ✅ Built-in and custom role definitions, role assignments with ABAC conditions at every scope, and the caller's permissions |
 | **Template deployments** | ARM path (`Microsoft.Resources/deployments`) | ✅ Resource-group and subscription deployments provisioned through the other handlers; parameters, variables, `dependsOn`, `copy`, outputs, operations, validate; Incremental and Complete modes |
+| **Tags API** | ARM path (`Microsoft.Resources/tags/default`) | ✅ Get, replace, Merge/Replace/Delete and delete at subscription, resource-group and resource scope, reflected in the target and in Resource Graph |
 | **Azure Resource Graph** | ARM path (`Microsoft.ResourceGraph/resources`) | ✅ KQL subset over `Resources` and `ResourceContainers`; paging with `$skipToken`; object array and table formats |
 
 ## Unified Endpoint

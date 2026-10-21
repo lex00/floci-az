@@ -8,6 +8,7 @@ import io.floci.az.core.cloud.ScopeResolver;
 import io.floci.az.services.arm.ArmHandler;
 import io.floci.az.services.monitor.MonitorHandler;
 import io.floci.az.services.rbac.RbacPath;
+import io.floci.az.services.tags.TagsHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
@@ -55,7 +56,7 @@ public class ArmRouter {
     private static final List<String> FORWARDED_HEADERS = List.of(HttpHeaders.AUTHORIZATION, "X-Forwarded-Proto");
 
     /** Service types the ARM stages dispatch to directly rather than through a handler's routing table. */
-    static final Set<String> LITERAL_ROUTE_SERVICE_TYPES = Set.of("monitor", "rbac", "keyvault", "email", "arm");
+    static final Set<String> LITERAL_ROUTE_SERVICE_TYPES = Set.of("monitor", "rbac", "tags", "keyvault", "email", "arm");
 
     /**
      * A resolved ARM provider route: the pre-built {@code /providers/<namespace>/} marker, the service
@@ -98,7 +99,7 @@ public class ArmRouter {
         this.gate = gate;
         this.scopeResolver = scopeResolver;
         this.gated = (handler, request) -> this.gate.serve(request, handler::handle);
-        this.internalStages = List.of(this::routeMonitor, this::routeRbac, this::routeKeyVaultAtArmBase,
+        this.internalStages = List.of(this::routeMonitor, this::routeRbac, this::routeTags, this::routeKeyVaultAtArmBase,
             this::routeEmailAtArmBase, this::routeArmProviders, this::routeArmGeneric);
     }
 
@@ -246,6 +247,17 @@ public class ArmRouter {
             return Fallthrough.TO_NEXT_STAGE;
         }
         return dispatcher.dispatchOrServiceDisabled(ctx, "rbac", "rbac", ctx.path(), gated);
+    }
+
+    /**
+     * The Tags API at any scope. It runs ahead of the provider routes because the tags of a resource sit under
+     * that resource's own provider path.
+     */
+    RouteOutcome routeTags(RoutingContext ctx) {
+        if (!TagsHandler.matches(ctx.path())) {
+            return Fallthrough.TO_NEXT_STAGE;
+        }
+        return dispatcher.dispatchOrServiceDisabled(ctx, "tags", "tags", ctx.path(), gated);
     }
 
     RouteOutcome routeKeyVaultAtArmBase(RoutingContext ctx) {

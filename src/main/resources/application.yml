@@ -331,6 +331,8 @@ floci-az:
       # admin-principals: [] # FLOCI_AZ_SERVICES_RBAC_ADMIN_PRINCIPALS: object ids exempt from enforcement
     deployments:
       enabled: true       # Microsoft.Resources/deployments: ARM template deployments, provisioned through the other handlers
+    tags:
+      enabled: true       # Microsoft.Resources/tags/default: the Tags API (Merge, Replace, Delete) at any scope
     resource-graph:
       enabled: true       # Microsoft.ResourceGraph queries (a KQL subset over Resources and ResourceContainers)
 

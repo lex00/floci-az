@@ -300,6 +300,7 @@ public interface EmulatorConfig {
         ResourceGraphConfig    resourceGraph();
         RbacConfig             rbac();
         DeploymentsConfig      deployments();
+        TagsConfig             tags();
 
         /** Shared Docker network for sidecar containers (Artemis, Redpanda, etc.). */
         Optional<String> dockerNetwork();
@@ -429,6 +430,12 @@ public interface EmulatorConfig {
 
     /** ARM template deployments (Microsoft.Resources/deployments) at resource-group and subscription scope. */
     interface DeploymentsConfig {
+        @WithDefault("true")
+        boolean enabled();
+    }
+
+    /** The Tags API: {@code Microsoft.Resources/tags/default} at a subscription, resource group or resource. */
+    interface TagsConfig {
         @WithDefault("true")
         boolean enabled();
     }

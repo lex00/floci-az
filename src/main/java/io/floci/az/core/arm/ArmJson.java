@@ -1,12 +1,15 @@
 package io.floci.az.core.arm;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.floci.az.core.AzureRequest;
+import jakarta.ws.rs.core.Response;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /** JSON request-body helpers shared by ARM-style handlers. */
@@ -83,6 +86,29 @@ public final class ArmJson {
     @SuppressWarnings("unchecked")
     public static Map<String, Object> cast(Object value) {
         return value instanceof Map<?, ?> m ? (Map<String, Object>) m : Map.of();
+    }
+
+    /** A response's entity as JSON values: handlers answer with maps, or with JSON text. */
+    public static Object responseBody(Response response) {
+        Object entity = response.getEntity();
+        if (entity instanceof String text && !text.isBlank()) {
+            try {
+                return MAPPER.readValue(text, Object.class);
+            } catch (JsonProcessingException e) {
+                return Map.of("error", Map.of("code", String.valueOf(response.getStatus()), "message", text));
+            }
+        }
+        if (entity instanceof byte[] bytes && bytes.length > 0) {
+            try {
+                return MAPPER.readValue(bytes, Object.class);
+            } catch (IOException e) {
+                return Map.of();
+            }
+        }
+        if (entity instanceof Map<?, ?> || entity instanceof List<?>) {
+            return MAPPER.convertValue(entity, Object.class);
+        }
+        return entity == null ? Map.of() : MAPPER.convertValue(entity, Object.class);
     }
 
     public static String string(Map<String, Object> map, String key, String defaultValue) {

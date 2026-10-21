@@ -16,6 +16,7 @@ import io.floci.az.core.arm.ResourceIndexContributor;
 import io.floci.az.core.directory.AzureDirectory;
 import io.floci.az.core.directory.DirectoryOrigin;
 import io.floci.az.core.directory.Subscription;
+import io.floci.az.core.directory.SubscriptionTags;
 import io.floci.az.core.directory.Tenant;
 import io.floci.az.services.apim.ApiManagementHandler;
 import io.floci.az.services.blob.BlobServiceHandler;
@@ -112,6 +113,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
 
     /** Resources of provider namespaces no handler claims. */
     private final GenericResourceStore genericResources;
+    private final SubscriptionTags subscriptionTags;
 
     @Inject
     public ArmHandler(EmulatorConfig config, BlobServiceHandler blobHandler, QueueServiceHandler queueHandler,
@@ -120,7 +122,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
                       Instance<ArmProviderService> providerServices,
                       Instance<ResourceIndexContributor> resourceIndexContributors, ArmRequestGate gate,
                       AzureDirectory directory, ResourceGroupService resourceGroups,
-                      GenericResourceStore genericResources) {
+                      GenericResourceStore genericResources, SubscriptionTags subscriptionTags) {
         this.config               = config;
         this.blobHandler          = blobHandler;
         this.queueHandler         = queueHandler;
@@ -134,6 +136,7 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         this.directory            = directory;
         this.resourceGroups       = resourceGroups;
         this.genericResources     = genericResources;
+        this.subscriptionTags     = subscriptionTags;
     }
 
     /**
@@ -213,7 +216,8 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             boolean listFirstUse = config.subscriptionListing();
             return Response.ok(Map.of("value", directory.subscriptionsOfTenant(callerTenantId(req)).stream()
                     .filter(subscription -> listFirstUse || subscription.origin() != DirectoryOrigin.FIRST_USE)
-                    .map(subscription -> subscriptionBody(subscription, subscription.id())).toList())).build();
+                    .map(subscription -> subscriptionBody(subscription, subscription.id(),
+                            subscriptionTags.get(subscription.id()))).toList())).build();
         }
 
         // ── Subscription ──────────────────────────────────────────────────────
@@ -225,7 +229,8 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             // the directory's spelling, as Azure echoes its canonical id.
             return directory.subscription(sub)
                     .map(subscription -> Response.ok(subscriptionBody(subscription,
-                            config.subscriptionListing() ? subscription.id() : sub)).build())
+                            config.subscriptionListing() ? subscription.id() : sub,
+                            subscriptionTags.get(subscription.id()))).build())
                     .orElseGet(() -> ArmErrors.subscriptionNotFound(sub));
         }
 
@@ -1160,9 +1165,13 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
 
     // ── Subscription ─────────────────────────────────────────────────────────
 
-    /** {@code subscriptionId} is the spelling the body reports; the rest comes from the directory. */
-    private static Map<String, Object> subscriptionBody(Subscription subscription, String subscriptionId) {
-        return Map.of(
+    /**
+     * {@code subscriptionId} is the spelling the body reports; the rest comes from the directory, and {@code tags}
+     * from the Tags API, reported only when there are some.
+     */
+    private static Map<String, Object> subscriptionBody(Subscription subscription, String subscriptionId,
+                                                        Map<String, String> tags) {
+        Map<String, Object> body = new LinkedHashMap<>(Map.of(
                 "id",                   "/subscriptions/" + subscriptionId,
                 "subscriptionId",       subscriptionId,
                 "displayName",          subscription.displayName(),
@@ -1174,7 +1183,11 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
                         "locationPlacementId", "Internal_2014-09-01",
                         "quotaId",             "Internal_2014-09-01",
                         "spendingLimit",       "Off")
-        );
+        ));
+        if (!tags.isEmpty()) {
+            body.put("tags", tags);
+        }
+        return body;
     }
 
     /** Every tenant reports {@code Home} until the tenant listing is scoped to the caller. */

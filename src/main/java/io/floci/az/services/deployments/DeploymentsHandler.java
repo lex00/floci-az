@@ -22,7 +22,6 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
 
-import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
@@ -435,32 +434,9 @@ public class DeploymentsHandler implements AzureServiceHandler, Resettable {
                         ? Map.of()
                         : Map.of("api-version", apiVersion);
                 Response response = router.get().dispatchInternal(method, resourceId, query, body, origin);
-                return new TemplateEngine.Result(response.getStatus(), entity(response));
+                return new TemplateEngine.Result(response.getStatus(), ArmJson.responseBody(response));
             }
         };
-    }
-
-    /** A response's entity as JSON values: handlers answer with maps, or with JSON text. */
-    private static Object entity(Response response) {
-        Object entity = response.getEntity();
-        if (entity instanceof String text && !text.isBlank()) {
-            try {
-                return MAPPER.readValue(text, Object.class);
-            } catch (JsonProcessingException e) {
-                return Map.of("error", Map.of("code", String.valueOf(response.getStatus()), "message", text));
-            }
-        }
-        if (entity instanceof byte[] bytes && bytes.length > 0) {
-            try {
-                return MAPPER.readValue(bytes, Object.class);
-            } catch (IOException e) {
-                return Map.of();
-            }
-        }
-        if (entity instanceof Map<?, ?> || entity instanceof List<?>) {
-            return MAPPER.convertValue(entity, Object.class);
-        }
-        return entity == null ? Map.of() : MAPPER.convertValue(entity, Object.class);
     }
 
     private static Response notFound(ArmResourceId id) {

@@ -103,6 +103,7 @@ nav:
     - Azure Policy: services/policy.md
     - Azure RBAC: services/rbac.md
     - Template deployments: services/deployments.md
+    - Tags API: services/tags.md
     - Azure Resource Graph: services/resource-graph.md
   - Contributing: contributing.md
   - Changelog: changelog.md

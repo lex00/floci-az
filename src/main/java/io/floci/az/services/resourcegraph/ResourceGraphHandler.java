@@ -11,6 +11,7 @@ import io.floci.az.core.directory.AzureDirectory;
 import io.floci.az.core.directory.ResourceGroup;
 import io.floci.az.core.directory.ResourceGroups;
 import io.floci.az.core.directory.Subscription;
+import io.floci.az.core.directory.SubscriptionTags;
 import io.floci.az.core.directory.Tenant;
 import io.floci.az.services.arm.ArmHandler;
 import jakarta.enterprise.context.ApplicationScoped;
@@ -48,14 +49,16 @@ public class ResourceGraphHandler implements AzureServiceHandler {
     private final ArmHandler arm;
     private final AzureDirectory directory;
     private final ResourceGroups groups;
+    private final SubscriptionTags subscriptionTags;
 
     @Inject
     public ResourceGraphHandler(EmulatorConfig config, ArmHandler arm, AzureDirectory directory,
-                                ResourceGroups groups) {
+                                ResourceGroups groups, SubscriptionTags subscriptionTags) {
         this.config = config;
         this.arm = arm;
         this.directory = directory;
         this.groups = groups;
+        this.subscriptionTags = subscriptionTags;
     }
 
     @Override
@@ -176,7 +179,8 @@ public class ResourceGraphHandler implements AzureServiceHandler {
             String tenantId = directory.tenantOfSubscription(sub);
             directory.subscription(sub).ifPresent(subscription -> {
                 Map<String, Object> row = row("/subscriptions/" + subscription.id(), subscription.displayName(),
-                        "microsoft.resources/subscriptions", tenantId, null, null, subscription.id(), null);
+                        "microsoft.resources/subscriptions", tenantId, null, null, subscription.id(),
+                        subscriptionTags.get(subscription.id()));
                 row.put("properties", Map.of("state", subscription.state().wireName()));
                 rows.add(row);
             });

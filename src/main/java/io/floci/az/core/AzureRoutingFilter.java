@@ -71,6 +71,7 @@ public class AzureRoutingFilter {
             this::routeMicrosoftGraph,
             armRouter::routeMonitor,
             armRouter::routeRbac,
+            armRouter::routeTags,
             armRouter::routeKeyVaultAtArmBase,
             armRouter::routeEmailAtArmBase,
             armRouter::routeArmProviders,
