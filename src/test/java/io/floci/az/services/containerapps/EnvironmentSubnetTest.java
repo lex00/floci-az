@@ -48,4 +48,18 @@ class EnvironmentSubnetTest {
             .when().put(RG + "/providers/Microsoft.App/managedEnvironments/env-ok?api-version=2025-07-01")
             .then().statusCode(anyOf(is(200), is(201)));
     }
+
+    @Test
+    void anEnvironmentOnAnInlineSubnetIsCreated() {
+        given().contentType("application/json")
+            .body("{\"location\":\"eastus\",\"properties\":{\"addressSpace\":{\"addressPrefixes\":[\"10.1.0.0/16\"]},"
+                + "\"subnets\":[{\"name\":\"apps\",\"properties\":{\"addressPrefix\":\"10.1.0.0/23\"}}]}}")
+            .when().put(RG + "/providers/Microsoft.Network/virtualNetworks/vnet-inline?api-version=2024-05-01")
+            .then().statusCode(anyOf(is(200), is(201)));
+
+        given().contentType("application/json")
+            .body(environmentBody(RG + "/providers/Microsoft.Network/virtualNetworks/vnet-inline/subnets/apps"))
+            .when().put(RG + "/providers/Microsoft.App/managedEnvironments/env-inline?api-version=2025-07-01")
+            .then().statusCode(anyOf(is(200), is(201)));
+    }
 }
