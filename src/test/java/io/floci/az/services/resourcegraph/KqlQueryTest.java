@@ -7,6 +7,7 @@ import java.util.Map;
 
 import static org.hamcrest.MatcherAssert.assertThat;
 import static org.hamcrest.Matchers.contains;
+import static org.hamcrest.Matchers.containsInAnyOrder;
 import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.hasSize;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -73,5 +74,67 @@ class KqlQueryTest {
         assertThrows(KqlQuery.KqlException.class, () -> KqlQuery.parse("Resources | join kind=inner (x) on id"));
         assertThrows(KqlQuery.KqlException.class, () -> KqlQuery.parse("Resources | where name == 'open"));
         assertThrows(KqlQuery.KqlException.class, () -> KqlQuery.parse("Resources | where"));
+    }
+
+    private static final List<Map<String, Object>> CONTAINERS = List.of(
+            Map.of("name", "rg-one", "type", "microsoft.resources/subscriptions/resourcegroups",
+                    "tags", Map.of("Tofu-Estate", "e1")),
+            Map.of("name", "sub", "type", "microsoft.resources/subscriptions", "tags", Map.of()));
+
+    private static List<Object> names(String query, KqlQuery.Tables tables) {
+        return KqlQuery.parse(query).run(tables).stream().map(row -> row.get("name")).toList();
+    }
+
+    private static List<Map<String, Object>> table(String name) {
+        return switch (name.toLowerCase()) {
+            case "resources" -> ROWS;
+            case "resourcecontainers" -> CONTAINERS;
+            default -> throw new KqlQuery.KqlException("Table '" + name + "' is not supported");
+        };
+    }
+
+    @Test
+    void unionAddsTheRowsOfATableOrSubquery() {
+        assertThat(names("resources | union (resourcecontainers | where type =~ "
+                + "'microsoft.resources/subscriptions/resourcegroups') | project name", KqlQueryTest::table),
+                contains("alpha", "beta", "gamma", "rg-one"));
+        assertThat(names("resources | where name == 'beta' | union resourcecontainers", KqlQueryTest::table),
+                contains("beta", "rg-one", "sub"));
+    }
+
+    @Test
+    void mvExpandGivesOneRowPerBagEntryAndDropsEmptyBags() {
+        List<Map<String, Object>> rows = KqlQuery.parse("Resources | mv-expand tags | project name, tags").run(ROWS);
+        assertThat(rows, containsInAnyOrder(
+                Map.of("name", "alpha", "tags", Map.of("env", "Prod")),
+                Map.of("name", "alpha", "tags", Map.of("tofu-estate", "e1")),
+                Map.of("name", "beta", "tags", Map.of("env", "dev"))));
+    }
+
+    @Test
+    void bagKeysAndAComputedIndexReadAnExpandedEntry() {
+        assertThat(names("Resources | extend t = tags | mv-expand t | extend k = tostring(bag_keys(t)[0]) "
+                + "| where k =~ 'TOFU-ESTATE' and tostring(t[k]) == 'e1'"), contains("alpha"));
+    }
+
+    @Test
+    void tostringOfABagIsItsJson() {
+        assertThat(KqlQuery.parse("Resources | where name == 'beta' | project s = tostring(tags)").run(ROWS),
+                contains(Map.of("s", "{\"env\":\"dev\"}")));
+    }
+
+    @Test
+    void theEstateSweepQueryFindsMarkersInAnySpelling() {
+        String sweep = """
+                resources
+                | union (resourcecontainers | where type =~ 'microsoft.resources/subscriptions/resourcegroups')
+                | where isnotempty(tags)
+                | extend markerTag = tags
+                | mv-expand markerTag
+                | extend markerKey = tostring(bag_keys(markerTag)[0])
+                | where markerKey =~ 'tofu-estate' and tostring(markerTag[markerKey]) == 'e1'
+                | project id, type, name, resourceGroup, subscriptionId, location, tags, managedBy
+                """;
+        assertThat(names(sweep, KqlQueryTest::table), contains("alpha", "rg-one"));
     }
 }

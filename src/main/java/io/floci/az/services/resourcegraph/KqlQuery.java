@@ -1,5 +1,8 @@
 package io.floci.az.services.resourcegraph;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
@@ -9,13 +12,13 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
-import java.util.function.Function;
 
 /**
  * The subset of the Kusto Query Language that Resource Graph clients send: a table name followed by
  * {@code where}, {@code project}, {@code project-away}, {@code extend}, {@code take}/{@code limit},
- * {@code top}, {@code order by}/{@code sort by}, {@code count}, {@code distinct} and {@code summarize}
- * with {@code count()}.
+ * {@code top}, {@code order by}/{@code sort by}, {@code count}, {@code distinct}, {@code summarize}
+ * with {@code count()}, {@code union} of other tables or parenthesized subqueries, and {@code mv-expand}
+ * of an array or property bag.
  *
  * <p>Expressions cover {@code and}, {@code or}, the string operators ({@code ==}, {@code !=}, {@code =~},
  * {@code !~}, {@code contains}, {@code startswith}, {@code endswith}, {@code has}, each with its negation),
@@ -31,10 +34,22 @@ public final class KqlQuery {
         }
     }
 
-    private final String table;
-    private final List<Function<List<Map<String, Object>>, List<Map<String, Object>>>> stages;
+    /** The rows of each table a query reads, by the name the query writes. */
+    public interface Tables {
+        /** The table's rows; a {@link KqlException} for a table this source does not hold. */
+        List<Map<String, Object>> rows(String table);
+    }
 
-    private KqlQuery(String table, List<Function<List<Map<String, Object>>, List<Map<String, Object>>>> stages) {
+    private interface Stage {
+        List<Map<String, Object>> apply(List<Map<String, Object>> rows, Tables tables);
+    }
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+
+    private final String table;
+    private final List<Stage> stages;
+
+    private KqlQuery(String table, List<Stage> stages) {
         this.table = table;
         this.stages = stages;
     }
@@ -49,10 +64,21 @@ public final class KqlQuery {
         return parser.query();
     }
 
+    /** Runs the query over {@code rows} as its own table; a {@code union} of another table is a {@link KqlException}. */
     public List<Map<String, Object>> run(List<Map<String, Object>> rows) {
-        List<Map<String, Object>> current = rows;
-        for (Function<List<Map<String, Object>>, List<Map<String, Object>>> stage : stages) {
-            current = stage.apply(current);
+        return run(name -> {
+            if (!name.equalsIgnoreCase(table)) {
+                throw new KqlException("Table '" + name + "' is not supported");
+            }
+            return rows;
+        });
+    }
+
+    /** Runs the query over its table and any table it unions, read from {@code tables}. */
+    public List<Map<String, Object>> run(Tables tables) {
+        List<Map<String, Object>> current = tables.rows(table);
+        for (Stage stage : stages) {
+            current = stage.apply(current, tables);
         }
         return current;
     }
@@ -145,63 +171,69 @@ public final class KqlQuery {
         }
 
         KqlQuery query() {
+            KqlQuery query = pipeline();
+            if (peek().kind() != Kind.END) {
+                throw new KqlException("Unexpected '" + peek().text() + "'; operators are separated by '|'");
+            }
+            return query;
+        }
+
+        /** A table name and the operators piped after it, up to the end or a closing parenthesis. */
+        private KqlQuery pipeline() {
             Token first = next();
             if (first.kind() != Kind.IDENT) {
                 throw new KqlException("A query starts with a table name");
             }
-            List<Function<List<Map<String, Object>>, List<Map<String, Object>>>> stages = new ArrayList<>();
+            List<Stage> stages = new ArrayList<>();
             while (accept("|")) {
                 stages.add(operator());
-            }
-            if (peek().kind() != Kind.END) {
-                throw new KqlException("Unexpected '" + peek().text() + "'; operators are separated by '|'");
             }
             return new KqlQuery(first.text(), stages);
         }
 
-        private Function<List<Map<String, Object>>, List<Map<String, Object>>> operator() {
+        private Stage operator() {
             String name = ident().toLowerCase(Locale.ROOT);
             return switch (name) {
                 case "where" -> {
                     Expr predicate = expression();
-                    yield rows -> rows.stream().filter(row -> truthy(predicate.eval(row))).toList();
+                    yield rows(rows -> rows.stream().filter(row -> truthy(predicate.eval(row))).toList());
                 }
                 case "project" -> {
                     List<Column> columns = columns();
-                    yield rows -> rows.stream().map(row -> {
+                    yield rows(rows -> rows.stream().map(row -> {
                         Map<String, Object> out = new LinkedHashMap<>();
                         columns.forEach(column -> out.put(column.name(), column.expr().eval(row)));
                         return out;
-                    }).toList();
+                    }).toList());
                 }
                 case "project-away" -> {
                     List<String> names = identList();
-                    yield rows -> rows.stream().map(row -> {
+                    yield rows(rows -> rows.stream().map(row -> {
                         Map<String, Object> out = new LinkedHashMap<>(row);
                         names.forEach(out::remove);
                         return out;
-                    }).toList();
+                    }).toList());
                 }
                 case "extend" -> {
                     List<Column> columns = columns();
-                    yield rows -> rows.stream().map(row -> {
+                    yield rows(rows -> rows.stream().map(row -> {
                         Map<String, Object> out = new LinkedHashMap<>(row);
                         columns.forEach(column -> out.put(column.name(), column.expr().eval(row)));
                         return out;
-                    }).toList();
+                    }).toList());
                 }
                 case "take", "limit" -> {
                     int count = integer();
-                    yield rows -> rows.subList(0, Math.min(count, rows.size()));
+                    yield rows(rows -> rows.subList(0, Math.min(count, rows.size())));
                 }
                 case "top" -> {
                     int count = integer();
                     expectIdent("by");
                     SortKey key = sortKey();
-                    yield rows -> {
+                    yield rows(rows -> {
                         List<Map<String, Object>> sorted = sorted(rows, List.of(key));
                         return sorted.subList(0, Math.min(count, sorted.size()));
-                    };
+                    });
                 }
                 case "order", "sort" -> {
                     expectIdent("by");
@@ -209,16 +241,16 @@ public final class KqlQuery {
                     do {
                         keys.add(sortKey());
                     } while (accept(","));
-                    yield rows -> sorted(rows, keys);
+                    yield rows(rows -> sorted(rows, keys));
                 }
-                case "count" -> rows -> {
+                case "count" -> rows(rows -> {
                     Map<String, Object> out = new LinkedHashMap<>();
                     out.put("Count", (long) rows.size());
                     return List.of(out);
-                };
+                });
                 case "distinct" -> {
                     List<Column> columns = columns();
-                    yield rows -> {
+                    yield rows(rows -> {
                         Set<Map<String, Object>> seen = new LinkedHashSet<>();
                         for (Map<String, Object> row : rows) {
                             Map<String, Object> out = new LinkedHashMap<>();
@@ -226,15 +258,86 @@ public final class KqlQuery {
                             seen.add(out);
                         }
                         return List.copyOf(seen);
-                    };
+                    });
                 }
                 case "summarize" -> summarize();
+                case "union" -> union();
+                case "mv-expand" -> mvExpand();
                 default -> throw new KqlException("Operator '" + name + "' is not supported");
             };
         }
 
+        private interface RowStage {
+            List<Map<String, Object>> apply(List<Map<String, Object>> rows);
+        }
+
+        /** A stage that reads only the rows piped into it. */
+        private static Stage rows(RowStage stage) {
+            return (rows, tables) -> stage.apply(rows);
+        }
+
+        /** {@code union T, (T | ...), ...}: the piped rows followed by each table's or subquery's rows. */
+        private Stage union() {
+            List<KqlQuery> sources = new ArrayList<>();
+            do {
+                if (accept("(")) {
+                    sources.add(pipeline());
+                    expect(")");
+                } else {
+                    sources.add(new KqlQuery(ident(), List.of()));
+                }
+            } while (accept(","));
+            return (rows, tables) -> {
+                List<Map<String, Object>> out = new ArrayList<>(rows);
+                sources.forEach(source -> out.addAll(source.run(tables)));
+                return out;
+            };
+        }
+
+        /**
+         * {@code mv-expand [name =] column}: one row per element of an array, or per entry of a property bag as a
+         * one-entry bag. A null value keeps its row and an empty array or bag drops it, as Kusto does.
+         */
+        private Stage mvExpand() {
+            int start = pos;
+            String name;
+            Expr expr;
+            if (peek().kind() == Kind.IDENT && tokens.get(pos + 1).text().equals("=")) {
+                name = ident();
+                expect("=");
+                expr = expression();
+            } else {
+                expr = expression();
+                name = columnName(start);
+            }
+            return rows(rows -> {
+                List<Map<String, Object>> out = new ArrayList<>();
+                for (Map<String, Object> row : rows) {
+                    Object value = expr.eval(row);
+                    List<Object> elements = new ArrayList<>();
+                    if (value instanceof List<?> list) {
+                        elements.addAll(list);
+                    } else if (value instanceof Map<?, ?> bag) {
+                        bag.forEach((key, entry) -> {
+                            Map<String, Object> single = new LinkedHashMap<>();
+                            single.put(String.valueOf(key), entry);
+                            elements.add(single);
+                        });
+                    } else {
+                        elements.add(value);
+                    }
+                    for (Object element : elements) {
+                        Map<String, Object> expanded = new LinkedHashMap<>(row);
+                        expanded.put(name, element);
+                        out.add(expanded);
+                    }
+                }
+                return out;
+            });
+        }
+
         /** {@code summarize [name =] count() [by column, ...]}, or {@code summarize by column, ...}. */
-        private Function<List<Map<String, Object>>, List<Map<String, Object>>> summarize() {
+        private Stage summarize() {
             String countColumn = null;
             if (!peekIdent("by")) {
                 countColumn = "count_";
@@ -251,7 +354,7 @@ public final class KqlQuery {
             }
             List<Column> by = acceptIdent("by") ? columns() : List.of();
             String counted = countColumn;
-            return rows -> {
+            return rows(rows -> {
                 Map<Map<String, Object>, Long> groups = new LinkedHashMap<>();
                 for (Map<String, Object> row : rows) {
                     Map<String, Object> key = new LinkedHashMap<>();
@@ -270,7 +373,7 @@ public final class KqlQuery {
                     out.add(row);
                 });
                 return out;
-            };
+            });
         }
 
         private SortKey sortKey() {
@@ -409,12 +512,13 @@ public final class KqlQuery {
                     Expr base = expr;
                     expr = row -> member(base.eval(row), key);
                 } else if (accept("[")) {
-                    Token key = next();
+                    Expr key = expression();
                     expect("]");
                     Expr base = expr;
-                    expr = key.kind() == Kind.NUMBER
-                            ? row -> index(base.eval(row), Integer.parseInt(key.text()))
-                            : row -> member(base.eval(row), key.text());
+                    expr = row -> {
+                        Object k = key.eval(row);
+                        return k instanceof Number n ? index(base.eval(row), n.intValue()) : member(base.eval(row), text(k));
+                    };
                 } else {
                     return expr;
                 }
@@ -467,6 +571,9 @@ public final class KqlQuery {
                     String value = text(arg.eval(row));
                     return value == null ? "" : value;
                 };
+                case "bag_keys" -> row -> arg.eval(row) instanceof Map<?, ?> bag
+                        ? bag.keySet().stream().map(String::valueOf).toList()
+                        : null;
                 case "strlen" -> row -> {
                     String value = text(arg.eval(row));
                     return value == null ? null : (long) value.length();
@@ -556,10 +663,19 @@ public final class KqlQuery {
     }
 
     private static boolean isEmpty(Object value) {
-        return value == null || value instanceof String text && text.isEmpty();
+        return value == null || value instanceof String text && text.isEmpty()
+                || value instanceof Map<?, ?> bag && bag.isEmpty() || value instanceof List<?> list && list.isEmpty();
     }
 
+    /** A value as text; an array or property bag as its JSON, as Kusto's {@code tostring} gives it. */
     private static String text(Object value) {
+        if (value instanceof Map<?, ?> || value instanceof List<?>) {
+            try {
+                return JSON.writeValueAsString(value);
+            } catch (JsonProcessingException e) {
+                return String.valueOf(value);
+            }
+        }
         return value == null ? null : String.valueOf(value);
     }
 

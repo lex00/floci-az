@@ -109,13 +109,12 @@ public class ResourceGraphHandler implements AzureServiceHandler {
 
     private Response run(KqlQuery query, Map<String, Object> body, AzureRequest req) {
         List<String> subscriptions = subscriptions(body, req);
-        List<Map<String, Object>> rows = switch (query.table().toLowerCase(Locale.ROOT)) {
+        List<Map<String, Object>> result = query.run(table -> switch (table.toLowerCase(Locale.ROOT)) {
             case "resources" -> resourceRows(subscriptions);
             case "resourcecontainers" -> containerRows(subscriptions);
-            default -> throw new KqlQuery.KqlException("Table '" + query.table()
+            default -> throw new KqlQuery.KqlException("Table '" + table
                     + "' is not supported; use Resources or ResourceContainers");
-        };
-        List<Map<String, Object>> result = query.run(rows);
+        });
 
         Map<String, Object> options = ArmJson.cast(body.get("options"));
         int top = Math.max(1, Math.min(MAX_TOP, number(options.get("$top"), DEFAULT_TOP)));

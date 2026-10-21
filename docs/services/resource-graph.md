@@ -44,14 +44,29 @@ The query is a table name followed by `|`-separated operators from this subset o
 | `count` | one row with `Count` |
 | `distinct` | `distinct location` |
 | `summarize` | `summarize count() by location` (column `count_`), `summarize n = count()`, `summarize by type` |
+| `union` | `union ResourceContainers` or `union (ResourceContainers \| where ...)`: the piped rows, then each table's or subquery's rows |
+| `mv-expand` | `mv-expand tags` or `mv-expand t = tags`: one row per array element, or per bag entry as a one-entry bag. A null keeps its row and an empty array or bag drops it |
 
 Predicates combine `and`, `or` and `not()`. The operators are `==`, `!=`, `=~`, `!~`, `contains`,
 `contains_cs`, `startswith`, `endswith`, `has`, the negated forms (`!contains` and so on), `in`,
-`!in`, `in~`, `!in~`, `<`, `>`, `<=` and `>=`. Dynamic columns are read with `tags.env` or
-`tags['tofu-estate']`. The functions are `tolower`, `toupper`, `tostring`, `strlen`, `isempty`,
-`isnotempty`, `isnull` and `isnotnull`.
+`!in`, `in~`, `!in~`, `<`, `>`, `<=` and `>=`. Dynamic columns are read with `tags.env`,
+`tags['tofu-estate']`, `tags[key]` for a computed key, or `list[0]`. Property access is case-sensitive, as in
+KQL. The functions are `tolower`, `toupper`, `tostring` (an array or bag gives its JSON), `strlen`,
+`isempty`, `isnotempty` (an empty array or bag counts as empty), `isnull`, `isnotnull` and `bag_keys`.
 
-Anything outside the subset, such as `join`, `mv-expand` or other aggregations, answers
+This query finds the resources and resource groups that carry a tag in any spelling of its name:
+
+```kql
+resources
+| union (resourcecontainers | where type =~ 'microsoft.resources/subscriptions/resourcegroups')
+| where isnotempty(tags)
+| extend markerTag = tags
+| mv-expand markerTag
+| extend markerKey = tostring(bag_keys(markerTag)[0])
+| where markerKey =~ 'tofu-estate' and tostring(markerTag[markerKey]) == 'e1'
+```
+
+Anything outside the subset, such as `join` or other aggregations, answers
 `400 BadRequest` with an `InvalidQuery` detail and a `ParserFailure` detail naming the problem.
 
 ## Intentional deviations
