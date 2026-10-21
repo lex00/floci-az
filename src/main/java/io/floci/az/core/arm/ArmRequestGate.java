@@ -88,14 +88,15 @@ public class ArmRequestGate {
 
     /**
      * The request with its {@code PUT} or {@code PATCH} body held in memory, so the rules can read it and the
-     * handler still finds it whole.
+     * handler still finds it whole. Tag names that differ only by case are folded into one on the way, so every
+     * handler stores one tag per name as ARM does.
      */
     private static AzureRequest bufferWriteBody(AzureRequest request) {
         if (!isWrite(request.method()) || request.bodyStream() == null) {
             return request;
         }
         try {
-            return request.withBody(new ByteArrayInputStream(request.bodyStream().readAllBytes()));
+            return request.withBody(new ByteArrayInputStream(ArmTags.foldCase(request.bodyStream().readAllBytes())));
         } catch (IOException e) {
             throw new UncheckedIOException("cannot read the ARM request body", e);
         }

@@ -41,6 +41,9 @@ Managed Identity, and the other `Microsoft.*` providers).
   `POST .../{namespace}/checkNameAvailability`
 - **Provider fallthrough**: management-plane paths for providers without a dedicated handler are
   answered here so Terraform reads and dependency lookups resolve
+- **Tag names**: matched case-insensitively on every ARM write, as Azure does. A body that names one
+  tag in two spellings keeps the spelling and value written last, and a `PATCH` that respells a name
+  replaces it. Tag values stay case-sensitive
 
 ## Endpoints
 
