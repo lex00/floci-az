@@ -1,5 +1,6 @@
 package io.floci.az.core.arm;
 
+import io.floci.az.services.managedidentity.UserAssignedIdentityRule;
 import io.floci.az.services.policy.PolicyEnforcementRule;
 import io.floci.az.services.rbac.RbacEnforcementRule;
 import io.quarkus.test.junit.QuarkusTest;
@@ -20,9 +21,9 @@ class ArmRequestGateProductionTest {
     ArmRequestGate gate;
 
     @Test
-    void theSubscriptionRuleRunsFirstThenRbacPolicyResourceGroupAndResourceTypeRules() {
+    void theSubscriptionRuleRunsFirstThenRbacPolicyResourceGroupResourceTypeAndIdentityRules() {
         List<ArmRequestRule> rules = gate.rules();
-        assertEquals(5, rules.size(), "rules: " + rules);
+        assertEquals(6, rules.size(), "rules: " + rules);
         assertInstanceOf(SubscriptionRule.class, rules.getFirst());
         assertEquals(SubscriptionRule.ORDER, rules.getFirst().order());
         assertInstanceOf(RbacEnforcementRule.class, rules.get(1));
@@ -33,5 +34,7 @@ class ArmRequestGateProductionTest {
         assertEquals(ResourceGroupRule.ORDER, rules.get(3).order());
         assertInstanceOf(ResourceTypeRule.class, rules.get(4));
         assertEquals(ResourceTypeRule.ORDER, rules.get(4).order());
+        assertInstanceOf(UserAssignedIdentityRule.class, rules.get(5));
+        assertEquals(UserAssignedIdentityRule.ORDER, rules.get(5).order());
     }
 }
