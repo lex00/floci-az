@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import io.floci.az.config.EmulatorConfig;
+import io.floci.az.core.ArmRouter;
 import io.floci.az.core.AzureRequest;
 import io.floci.az.core.AzureServiceHandler;
 import io.floci.az.core.Resettable;
@@ -23,6 +24,7 @@ import io.floci.az.services.containerapps.ContainerAppsModels.ManagedEnvironment
 import io.floci.az.services.containerapps.ContainerAppsModels.RevisionState;
 import jakarta.annotation.PreDestroy;
 import jakarta.enterprise.context.ApplicationScoped;
+import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.core.Response;
 import org.jboss.logging.Logger;
@@ -57,17 +59,20 @@ public class ContainerAppsHandler implements AzureServiceHandler, Resettable, Re
     private final ContainerAppRuntimeManager runtimeManager;
     private final ContainerAppIngressProxy ingressProxy;
     private final StorageBackend<String, StoredObject> storage;
+    private final Instance<ArmRouter> router;
     private final Map<String, AtomicInteger> trafficCounters = new ConcurrentHashMap<>();
 
     @Inject
     public ContainerAppsHandler(EmulatorConfig config,
                                 ContainerAppRuntimeManager runtimeManager,
                                 ContainerAppIngressProxy ingressProxy,
-                                StorageFactory storageFactory) {
+                                StorageFactory storageFactory,
+                                Instance<ArmRouter> router) {
         this.config = config;
         this.runtimeManager = runtimeManager;
         this.ingressProxy = ingressProxy;
         this.storage = storageFactory.create("containerapps");
+        this.router = router;
     }
 
     @Override
@@ -214,6 +219,12 @@ public class ContainerAppsHandler implements AzureServiceHandler, Resettable, Re
             document.put("location", existing.map(value -> value.getDocument().path("location").asText("eastus"))
                     .orElse("eastus"));
         }
+        String subnetId = incoming.path("properties").path("vnetConfiguration")
+                .path("infrastructureSubnetId").asText("");
+        if (!subnetId.isBlank() && !subnetExists(subnetId, request)) {
+            return ArmErrors.error(400, "ManagedEnvironmentSubnetNotFound",
+                    "The subnet '" + subnetId + "' in vnetConfiguration.infrastructureSubnetId was not found.");
+        }
 
         ManagedEnvironmentState environment = existing.orElseGet(() ->
                 new ManagedEnvironmentState(subscription, resourceGroup, name, document, Instant.now()));
@@ -224,6 +235,12 @@ public class ContainerAppsHandler implements AzureServiceHandler, Resettable, Re
         write(key, environment);
         return Response.status(existing.isPresent() ? 200 : 201)
                 .entity(environmentResponse(environment)).build();
+    }
+
+    private boolean subnetExists(String subnetId, AzureRequest request) {
+        Response response = router.get().dispatchInternal("GET", subnetId,
+                Map.of("api-version", "2024-05-01"), request);
+        return response.getStatus() / 100 == 2;
     }
 
     private Response deleteEnvironment(String key, String subscription, String resourceGroup, String name) {

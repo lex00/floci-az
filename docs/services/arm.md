@@ -44,6 +44,9 @@ Managed Identity, and the other `Microsoft.*` providers).
 - **Tag names**: matched case-insensitively on every ARM write, as Azure does. A body that names one
   tag in two spellings keeps the spelling and value written last, and a `PATCH` that respells a name
   replaces it. Tag values stay case-sensitive
+- **Resource types**: a `PUT` whose type segment holds an underscore (`virtualNetworks_subnets`, where
+  ARM nests `virtualNetworks/subnets`) answers `400 InvalidResourceType` and stores nothing. A type
+  under a namespace no service declares is kept in the generic store
 
 ## Endpoints
 

@@ -61,7 +61,7 @@ class ContainerAppsHandlerUnitTest {
         StorageFactory storageFactory = mock(StorageFactory.class);
         StorageBackend<String, StoredObject> storage = new InMemoryStorage<>();
         when(storageFactory.create("containerapps")).thenReturn(storage);
-        handler = new ContainerAppsHandler(config, runtimeManager, ingressProxy, storageFactory);
+        handler = new ContainerAppsHandler(config, runtimeManager, ingressProxy, storageFactory, null);
     }
 
     @Test

@@ -6,7 +6,9 @@ Real mode runs each active revision replica as Docker containers. Mocked mode ke
 
 ## Features
 
-- Managed Environment create, get, update, delete, and list
+- Managed Environment create, get, update, delete, and list. An environment whose
+  `vnetConfiguration.infrastructureSubnetId` names no existing subnet answers
+  `400 ManagedEnvironmentSubnetNotFound`
 - Container App create, get, update, delete, and list
 - Versioned templates with Single and Multiple active revision modes
 - Revision list, get, activate, deactivate, and restart
