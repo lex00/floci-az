@@ -43,6 +43,23 @@ own error under `details`. The `operations` list shows each step with its status
 the resource group's top-level resources that the template leaves out are deleted after a successful run.
 Deleting a deployment removes its record and leaves its resources.
 
+## Nested deployments
+
+A `Microsoft.Resources/deployments` resource inside a template is provisioned like any other resource: a
+`PUT` of that deployment at its target, which runs its template there and keeps its own record, operations
+and outputs.
+
+- The target is the resource group named by `resourceGroup`, in the subscription named by `subscriptionId`.
+  With `subscriptionId` alone it is that subscription. A `scope` naming a subscription or resource group
+  targets it too. With none of these, the target is the parent's own scope.
+- `copy`, `condition` and `dependsOn` apply as for any resource, so a copy loop deploys into one resource
+  group per iteration.
+- With `expressionEvaluationOptions.scope: inner`, the nested `parameters` are evaluated in the parent and
+  the nested template at the target. With the default `outer`, the nested template gets the parent's
+  parameter values and variables.
+- A nested deployment that fails fails the parent with `DeploymentFailed`. Its resources count as the
+  parent's for `Complete` mode.
+
 ## Template functions
 
 | Kind | Functions |
@@ -59,8 +76,10 @@ Any other function answers `400 InvalidTemplate` naming it.
 
 - `uniqueString` and `guid` are deterministic and shaped like Azure's, with values of floci-az's own:
   Azure's hash is not reproduced.
-- Nested deployments (`Microsoft.Resources/deployments` inside a template), `templateLink`,
-  `parametersLink`, Key Vault parameter references, what-if and template specs are not served.
+- `templateLink`, `parametersLink`, Key Vault parameter references, what-if and template specs are not
+  served. A nested deployment at management group or tenant scope is refused with `400 InvalidTemplate`.
+- An `outer` nested template is evaluated at its target, so `resourceGroup()`, `deployment()` and
+  `copyIndex()` of a parent copy loop answer for the nested deployment rather than the parent.
 - Provisioning stops at the first failed resource, where Azure goes on with resources that do not depend
   on it.
 - `providers` and `dependencies` in the response are empty.

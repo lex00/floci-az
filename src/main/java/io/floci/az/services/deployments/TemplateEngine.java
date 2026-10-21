@@ -15,6 +15,12 @@ import java.util.Set;
  * {@code copy} loops, {@code condition}, extension {@code scope}, symbolic names, {@code existing} references),
  * orders them by {@code dependsOn}, provisions each through {@link Arm}, and evaluates the {@code outputs}.
  * Provisioning stops at the first resource that fails.
+ *
+ * <p>A nested deployment ({@code Microsoft.Resources/deployments}) is provisioned like any other resource: a
+ * {@code PUT} of the deployment at the scope its {@code subscriptionId} and {@code resourceGroup} name, which runs
+ * its template there. With {@code expressionEvaluationOptions.scope} {@code inner} its {@code parameters} are
+ * evaluated here and its template there. With the default {@code outer}, the nested template is handed the
+ * parent's parameters and variables, and is evaluated at the target scope.
  */
 final class TemplateEngine {
 
@@ -49,6 +55,8 @@ final class TemplateEngine {
     private static final Set<String> NON_BODY_FIELDS = Set.of("type", "name", "apiversion", "dependson", "copy",
             "condition", "resources", "comments", "scope", "existing", "import", "metadata");
     private static final String RESOURCE_GROUP_TYPE = "Microsoft.Resources/resourceGroups";
+    private static final String DEPLOYMENT_TYPE = "Microsoft.Resources/deployments";
+    private static final Set<String> TARGET_FIELDS = Set.of("subscriptionid", "resourcegroup");
 
     private record Planned(String symbol, String copyName, String id, String type, String name, String apiVersion,
                            Map<String, Object> raw, TemplateEvaluator evaluator, List<String> dependsOn,
@@ -57,6 +65,10 @@ final class TemplateEngine {
 
     private final TemplateEvaluator.Scope scope;
     private final Arm arm;
+
+    /** The template being deployed and its bound parameters, which an {@code outer} nested deployment inherits. */
+    private Map<String, Object> template = Map.of();
+    private Map<String, Object> parameters = Map.of();
 
     TemplateEngine(TemplateEvaluator.Scope scope, Arm arm) {
         this.scope = scope;
@@ -113,6 +125,8 @@ final class TemplateEngine {
         List<String> deployed = new ArrayList<>();
         List<Planned> ordered;
         TemplateEvaluator root;
+        this.template = template;
+        this.parameters = parameters;
         try {
             root = new TemplateEvaluator(scope, parameters, optionalMap(template.get("variables")), arm);
             ordered = order(plan(template, parameters));
@@ -129,12 +143,19 @@ final class TemplateEngine {
             } catch (TemplateException e) {
                 return new Outcome(parameters, operations, Map.of(), deployed, e, null);
             }
+            boolean nested = isDeployment(planned.type());
+            if (nested && result.succeeded()) {
+                result = nestedResult(result);
+            }
             Operation operation = new Operation(planned.id(), planned.type(), planned.name(), "Create", result);
             operations.add(operation);
             if (!result.succeeded()) {
                 return new Outcome(parameters, operations, Map.of(), deployed, null, operation);
             }
             deployed.add(planned.id());
+            if (nested) {
+                deployed.addAll(nestedResources(result));
+            }
         }
         if (complete) {
             Set<String> kept = new LinkedHashSet<>(deployed.stream().map(id -> id.toLowerCase(Locale.ROOT)).toList());
@@ -179,6 +200,9 @@ final class TemplateEngine {
     }
 
     private Map<String, Object> body(Planned planned) {
+        if (isDeployment(planned.type())) {
+            return nestedBody(planned);
+        }
         Map<String, Object> body = new LinkedHashMap<>();
         for (Map.Entry<String, Object> entry : planned.raw().entrySet()) {
             if (!NON_BODY_FIELDS.contains(entry.getKey().toLowerCase(Locale.ROOT))) {
@@ -186,6 +210,123 @@ final class TemplateEngine {
             }
         }
         return body;
+    }
+
+    // ── Nested deployments ──────────────────────────────────────────────────────
+
+    private static boolean isDeployment(String type) {
+        return DEPLOYMENT_TYPE.equalsIgnoreCase(type);
+    }
+
+    /**
+     * The nested deployment's body: its fields evaluated here, except {@code properties.template}, which runs at
+     * the target. An {@code outer} template gets the parent's parameters and variables to evaluate against.
+     */
+    private Map<String, Object> nestedBody(Planned planned) {
+        TemplateEvaluator evaluator = planned.evaluator();
+        Map<String, Object> body = new LinkedHashMap<>();
+        Map<String, Object> rawProperties = Map.of();
+        for (Map.Entry<String, Object> entry : planned.raw().entrySet()) {
+            String key = entry.getKey().toLowerCase(Locale.ROOT);
+            if (key.equals("properties")) {
+                rawProperties = optionalMap(entry.getValue());
+            } else if (!NON_BODY_FIELDS.contains(key) && !TARGET_FIELDS.contains(key)) {
+                body.put(entry.getKey(), evaluator.evaluate(entry.getValue()));
+            }
+        }
+        Map<String, Object> properties = new LinkedHashMap<>();
+        Object nestedTemplate = null;
+        Object nestedParameters = null;
+        for (Map.Entry<String, Object> entry : rawProperties.entrySet()) {
+            switch (entry.getKey().toLowerCase(Locale.ROOT)) {
+                case "template" -> nestedTemplate = entry.getValue();
+                case "parameters" -> nestedParameters = entry.getValue();
+                default -> properties.put(entry.getKey(), evaluator.evaluate(entry.getValue()));
+            }
+        }
+        boolean inner = "inner".equalsIgnoreCase(String.valueOf(
+                optionalMap(properties.get("expressionEvaluationOptions")).get("scope")));
+        if (inner) {
+            if (nestedTemplate != null) {
+                properties.put("template", nestedTemplate);
+            }
+            if (nestedParameters != null) {
+                properties.put("parameters", evaluator.evaluate(nestedParameters));
+            }
+        } else if (nestedTemplate != null) {
+            properties.put("template", outerTemplate(optionalMap(nestedTemplate)));
+            Map<String, Object> values = new LinkedHashMap<>();
+            parameters.forEach((name, value) -> values.put(name, Map.of("value", value)));
+            properties.put("parameters", values);
+        }
+        body.put("properties", properties);
+        return body;
+    }
+
+    /** The nested template with the parent's parameter declarations and variables added to its own. */
+    private Map<String, Object> outerTemplate(Map<String, Object> nested) {
+        Map<String, Object> out = new LinkedHashMap<>(nested);
+        Map<String, Object> declared = new LinkedHashMap<>(optionalMap(template.get("parameters")));
+        declared.putAll(optionalMap(nested.get("parameters")));
+        out.put("parameters", declared);
+        Map<String, Object> variables = new LinkedHashMap<>(optionalMap(template.get("variables")));
+        variables.putAll(optionalMap(nested.get("variables")));
+        out.put("variables", variables);
+        return out;
+    }
+
+    /** A nested deployment's answer, as a failure carrying its error when its deployment ended {@code Failed}. */
+    private static Result nestedResult(Result result) {
+        Map<String, Object> properties = optionalMap(optionalMap(result.body()).get("properties"));
+        if (!"Failed".equalsIgnoreCase(String.valueOf(properties.get("provisioningState")))) {
+            return result;
+        }
+        Object error = properties.get("error") == null
+                ? Map.of("code", "DeploymentFailed", "message", "The nested deployment failed.")
+                : properties.get("error");
+        return new Result(409, Map.of("error", error));
+    }
+
+    /** The resources a nested deployment reports in its {@code outputResources}. */
+    private static List<String> nestedResources(Result result) {
+        Map<String, Object> properties = optionalMap(optionalMap(result.body()).get("properties"));
+        List<String> ids = new ArrayList<>();
+        if (properties.get("outputResources") instanceof List<?> resources) {
+            for (Object resource : resources) {
+                if (optionalMap(resource).get("id") instanceof String id) {
+                    ids.add(id);
+                }
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * The nested deployment's id at its target: the {@code subscriptionId} and {@code resourceGroup} it names, a
+     * {@code scope} naming a subscription or resource group, or else this deployment's own scope.
+     */
+    private String deploymentId(String name, Map<String, Object> resource, TemplateEvaluator evaluator) {
+        String subscription = scope.subscriptionId();
+        String group = scope.resourceGroup();
+        if (resource.get("scope") != null) {
+            ArmResourceId target = ArmResourceId.parse(TemplateEvaluator.text(evaluator.evaluate(resource.get("scope"))))
+                    .filter(id -> id.subscriptionId() != null && id.providerNamespace() == null)
+                    .orElseThrow(() -> new TemplateException("InvalidTemplate", "The nested deployment '" + name
+                            + "' has a scope floci-az does not deploy to; use a subscription or resource group."));
+            subscription = target.subscriptionId();
+            group = target.resourceGroup();
+        }
+        String givenSubscription = TemplateEvaluator.text(evaluator.evaluate(resource.get("subscriptionId")));
+        String givenGroup = TemplateEvaluator.text(evaluator.evaluate(resource.get("resourceGroup")));
+        if (!givenSubscription.isEmpty()) {
+            subscription = givenSubscription;
+            group = null;
+        }
+        if (!givenGroup.isEmpty()) {
+            group = givenGroup;
+        }
+        return "/subscriptions/" + subscription + (group == null ? "" : "/resourceGroups/" + group)
+                + "/providers/" + DEPLOYMENT_TYPE + "/" + name;
     }
 
     // ── Planning ────────────────────────────────────────────────────────────────
@@ -230,17 +371,18 @@ final class TemplateEngine {
         if (type.isEmpty() || name.isEmpty()) {
             throw new TemplateException("InvalidTemplate", "Every template resource needs a type and a name");
         }
-        if (type.equalsIgnoreCase("Microsoft.Resources/deployments")) {
-            throw new TemplateException("InvalidTemplate",
-                    "Nested deployments (Microsoft.Resources/deployments) are not supported by floci-az");
-        }
         if (parent != null && !type.contains("/")) {
             type = parent.type() + "/" + type;
             name = parent.name() + "/" + name;
         }
-        String id = id(type, name, resource.get("scope") == null
-                ? null
-                : TemplateEvaluator.text(evaluator.evaluate(resource.get("scope"))));
+        String id;
+        if (isDeployment(type)) {
+            id = deploymentId(name, resource, evaluator);
+        } else {
+            id = id(type, name, resource.get("scope") == null
+                    ? null
+                    : TemplateEvaluator.text(evaluator.evaluate(resource.get("scope"))));
+        }
         List<String> dependsOn = new ArrayList<>();
         if (resource.get("dependsOn") instanceof List<?> deps) {
             deps.forEach(dep -> dependsOn.add(TemplateEvaluator.text(evaluator.evaluate(dep))));
