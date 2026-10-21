@@ -18,6 +18,12 @@ floci-az:
   # certificate covers *.blob.<suffix> and the other storage services.
   # storage-suffix: localhost:4577
 
+  # When set, the Key Vault DNS suffix /metadata/endpoints, vault URIs and Key
+  # Vault object ids report instead of vault.azure.net. It starts with vault.
+  # so <vault>.<suffix> routes to Key Vault, and the self-signed certificate
+  # covers *.<suffix>. *.vault.localhost is always covered.
+  # key-vault-suffix: vault.localhost:4577
+
   auth:
     # Not enforced yet: every value, strict included, accepts any credentials
     # without SharedKey signature validation (see the note below the table).

@@ -50,9 +50,11 @@ final class KeyVaultCertificates {
     private static final Logger LOG = Logger.getLogger(KeyVaultCertificates.class);
     private static final ObjectMapper JSON = new ObjectMapper();
     private final StorageBackend<String, StoredObject> store;
+    private final String vaultSuffix;
 
-    KeyVaultCertificates(StorageBackend<String, StoredObject> store) {
+    KeyVaultCertificates(StorageBackend<String, StoredObject> store, String vaultSuffix) {
         this.store = store;
+        this.vaultSuffix = vaultSuffix;
     }
 
     synchronized Response handle(AzureRequest request) {
@@ -348,7 +350,7 @@ final class KeyVaultCertificates {
         return item;
     }
 
-    private static Map<String, Object> operation(String account, String name, Map<String, Object> certificate) {
+    private Map<String, Object> operation(String account, String name, Map<String, Object> certificate) {
         return Map.of("id", id(account, "certificates", name, "pending"), "status", "completed",
                 "status_details", "Certificate created", "target", certificate.get("id"),
                 "issuer", Map.of("name", "Self"), "cancellation_requested", false);
@@ -434,8 +436,8 @@ final class KeyVaultCertificates {
     }
 
     private static String base(String account, String kind, String name) { return account + "/" + kind + "/" + name; }
-    private static String id(String account, String kind, String name, String version) {
-        return "https://" + account + ".vault.azure.net/" + kind + "/" + name + (version.isEmpty() ? "" : "/" + version);
+    private String id(String account, String kind, String name, String version) {
+        return "https://" + account + "." + vaultSuffix + "/" + kind + "/" + name + (version.isEmpty() ? "" : "/" + version);
     }
     private static Response ok(Object value) { return Response.ok(value).build(); }
     private static Response missing(String name) { return error(404, "CertificateNotFound", "Certificate not found: " + name); }

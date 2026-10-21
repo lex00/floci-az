@@ -94,8 +94,10 @@ class TlsConfigSourceCertificateGenerationTest {
             "SANs should include '*.azurecr.io' so registry clients trust {name}.azurecr.io");
         assertTrue(sans.contains("*.blob.localhost"),
             "SANs should include '*.blob.localhost' so host-style {account}.blob.localhost verifies");
-        assertEquals(14, sans.size(),
-            "Default cert should have exactly 14 SANs (localhost, 127.0.0.1, 0.0.0.0, *.localhost, localhost.floci-az.io, *.localhost.floci-az.io, *.vault.azure.net, *.managedhsm.azure.net, *.azurecr.io, host.docker.internal, *.blob.localhost, *.dfs.localhost, *.queue.localhost, *.table.localhost)");
+        assertTrue(sans.contains("*.vault.localhost"),
+            "SANs should include '*.vault.localhost' so host-style {vault}.vault.localhost verifies");
+        assertEquals(15, sans.size(),
+            "Default cert should have exactly 15 SANs (localhost, 127.0.0.1, 0.0.0.0, *.localhost, localhost.floci-az.io, *.localhost.floci-az.io, *.vault.azure.net, *.managedhsm.azure.net, *.azurecr.io, host.docker.internal, *.blob.localhost, *.dfs.localhost, *.queue.localhost, *.table.localhost, *.vault.localhost)");
     }
 
     @Test

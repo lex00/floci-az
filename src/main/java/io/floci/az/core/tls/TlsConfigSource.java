@@ -209,6 +209,7 @@ public class TlsConfigSource implements ConfigSource {
                 "*.vault.azure.net", "*.managedhsm.azure.net", "*.azurecr.io",
                 "host.docker.internal"));
         all.addAll(storageSans(resolveProperty("floci-az.storage-suffix", "")));
+        all.addAll(keyVaultSans(resolveProperty("floci-az.key-vault-suffix", "")));
         all.addAll(customHostnames);
         return all;
     }
@@ -229,6 +230,19 @@ public class TlsConfigSource implements ConfigSource {
             for (String service : List.of("blob", "dfs", "queue", "table")) {
                 sans.add("*." + service + "." + host);
             }
+        }
+        return sans;
+    }
+
+    /**
+     * Wildcards for vault hosts: {@code <vault>.vault.localhost} always, and {@code <vault>.<suffix>} when
+     * {@code floci-az.key-vault-suffix} is set. A port on the suffix is dropped: a SAN names a host.
+     */
+    static List<String> keyVaultSans(String keyVaultSuffix) {
+        List<String> sans = new ArrayList<>(List.of("*.vault.localhost"));
+        String suffixHost = keyVaultSuffix.replaceFirst(":\\d+$", "");
+        if (!suffixHost.isBlank() && !suffixHost.equals("vault.azure.net") && !sans.contains("*." + suffixHost)) {
+            sans.add("*." + suffixHost);
         }
         return sans;
     }

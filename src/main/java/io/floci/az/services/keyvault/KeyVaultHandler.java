@@ -49,8 +49,8 @@ public class KeyVaultHandler implements AzureServiceHandler, Resettable {
     public KeyVaultHandler(StorageFactory factory, EmulatorConfig config) {
         this.store = factory.create("keyvault");
         this.config = config;
-        this.keys = new KeyVaultKeys(store);
-        this.certificates = new KeyVaultCertificates(store);
+        this.keys = new KeyVaultKeys(store, config.effectiveKeyVaultSuffix());
+        this.certificates = new KeyVaultCertificates(store, config.effectiveKeyVaultSuffix());
     }
 
     @Override
@@ -122,7 +122,7 @@ public class KeyVaultHandler implements AzureServiceHandler, Resettable {
         // Root probe — azurerm provider polls this to confirm the vault is reachable.
         if (routePath.isEmpty()) {
             String probeType = hsm ? "Microsoft.KeyVault/managedHSMs" : "Microsoft.KeyVault/vaults";
-            String probeId = "https://" + account + (hsm ? ".managedhsm.azure.net/" : ".vault.azure.net/");
+            String probeId = (hsm ? "https://" + account + ".managedhsm.azure.net" : vaultHost(account)) + "/";
             return Response.ok(Map.of("type", probeType, "id", probeId)).build();
         }
 
@@ -169,7 +169,7 @@ public class KeyVaultHandler implements AzureServiceHandler, Resettable {
         if ("certificates/contacts".equals(routePath)) {
             if ("GET".equals(method)) {
                 return Response.ok(Map.of(
-                    "id", "https://" + account + ".vault.azure.net/certificates/contacts",
+                    "id", vaultHost(account) + "/certificates/contacts",
                     "contacts", List.of()
                 )).build();
             }
@@ -778,7 +778,7 @@ public class KeyVaultHandler implements AzureServiceHandler, Resettable {
     // -------------------------------------------------------------------------
 
     private String vaultHost(String account) {
-        return "https://" + account + ".vault.azure.net";
+        return "https://" + account + "." + config.effectiveKeyVaultSuffix();
     }
 
     private String secretVersionId(String account, String name, String version) {

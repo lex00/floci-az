@@ -971,8 +971,6 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
         }
         Map<String, Object> body     = parseBody(req);
         String location              = bodyString(body, "location", "eastus");
-        // Use vault.azure.net domain format so the azurerm provider accepts the URI.
-        // Port is derived from the configured base URL so data-plane calls reach our emulator.
         String vaultUri              = vaultUri(vaultName);
         Map<String, Object> bodyProps = body.containsKey("properties")
                 ? cast(body.get("properties")) : Map.of();
@@ -1272,11 +1270,10 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
     }
 
     private String vaultUri(String vaultName) {
-        // Use vault.azure.net domain format on standard port 443 (no explicit port).
-        // azurerm validates the URI matches *.vault.* pattern. In the test container a
-        // socat listener on 443 forwards to the emulator so the azurerm provider can
-        // reach the vault; host-based routing then dispatches to KeyVaultHandler.
-        return "https://" + vaultName + ".vault.azure.net/";
+        // azurerm validates the URI matches *.vault.* pattern. With the default suffix the test
+        // container's socat listener on 443 forwards to the emulator; with a configured suffix such
+        // as vault.localhost:4577 the host-service-marker route reaches KeyVaultHandler directly.
+        return "https://" + vaultName + "." + config.effectiveKeyVaultSuffix() + "/";
     }
 
     private Response armNotFound(String path) {

@@ -39,9 +39,11 @@ final class KeyVaultKeys {
     private static final long PURGE_RETENTION_SECONDS = 7L * 24 * 3600;
 
     private final StorageBackend<String, StoredObject> store;
+    private final String vaultSuffix;
 
-    KeyVaultKeys(StorageBackend<String, StoredObject> store) {
+    KeyVaultKeys(StorageBackend<String, StoredObject> store, String vaultSuffix) {
         this.store = store;
+        this.vaultSuffix = vaultSuffix;
     }
 
     // ── Create / import ────────────────────────────────────────────────────────
@@ -847,7 +849,7 @@ final class KeyVaultKeys {
     // ── URL builders ───────────────────────────────────────────────────────────
 
     private String vaultHost(String account, boolean hsm) {
-        return "https://" + account + (hsm ? ".managedhsm.azure.net" : ".vault.azure.net");
+        return "https://" + account + (hsm ? ".managedhsm.azure.net" : "." + vaultSuffix);
     }
 
     private String keyVersionId(String account, String name, String version, boolean hsm) {

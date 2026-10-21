@@ -75,7 +75,7 @@ public class AzureIdentityController {
             ),
             "suffixes", Map.of(
                 "storage",     config.effectiveStorageSuffix(),
-                "keyVaultDns", "vault.azure.net"
+                "keyVaultDns", config.effectiveKeyVaultSuffix()
             )
         )).build();
     }

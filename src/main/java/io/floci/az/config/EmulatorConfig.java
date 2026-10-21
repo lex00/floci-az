@@ -34,6 +34,18 @@ public interface EmulatorConfig {
         return storageSuffix().filter(suffix -> !suffix.isBlank()).orElse("core.windows.net");
     }
 
+    /**
+     * When set, the Key Vault DNS suffix {@code /metadata/endpoints}, vault URIs and Key Vault object ids report in
+     * place of {@code vault.azure.net}, such as {@code vault.localhost:4577}. It starts with {@code vault.} so a vault
+     * host {@code <vault>.<suffix>} routes to Key Vault, and the self-signed certificate covers those hosts.
+     */
+    Optional<String> keyVaultSuffix();
+
+    /** The Key Vault DNS suffix clients are told to use: {@link #keyVaultSuffix()}, or Azure's own. */
+    default String effectiveKeyVaultSuffix() {
+        return keyVaultSuffix().filter(suffix -> !suffix.isBlank()).orElse("vault.azure.net");
+    }
+
     DnsConfig dns();
 
     /**

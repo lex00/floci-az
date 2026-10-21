@@ -225,6 +225,7 @@ All variables are optional; the default applies when unset.
 | `FLOCI_AZ_BASE_URL` | `http://localhost:4577` | Base URL embedded in API responses |
 | `FLOCI_AZ_HOSTNAME` | _(unset)_ | Override the hostname in SAS and invoke URLs (useful behind a reverse proxy) |
 | `FLOCI_AZ_STORAGE_SUFFIX` | `core.windows.net` | Storage DNS suffix reported by `/metadata/endpoints` and storage account endpoints, such as `localhost:4577`. Clients then address an account as `<account>.blob.<suffix>` |
+| `FLOCI_AZ_KEY_VAULT_SUFFIX` | `vault.azure.net` | Key Vault DNS suffix reported by `/metadata/endpoints`, vault URIs and Key Vault object ids, such as `vault.localhost:4577`. It starts with `vault.` so `<vault>.<suffix>` routes to Key Vault |
 | `FLOCI_AZ_AUTH_MODE` | `dev` | Not enforced yet: every value, `strict` included, accepts any credentials without validating SharedKey signatures. Blob service SAS signatures are checked against `auth.storage-account-keys` regardless |
 | `FLOCI_AZ_PARITY` | `compat` | Azure parity level. `compat`: responses stay as floci-az has always answered them. `azure`: every parity override on. `strict`: `azure` plus Azure's refusals. See the [ARM page](../services/arm.md#parity-levels) |
 | `FLOCI_AZ_PARITY_OVERRIDES_SUBSCRIPTION_LISTING` | _(on from `azure`)_ | `true`: `GET /subscriptions` also lists subscriptions registered on first use, and a subscription is echoed with the directory's id |

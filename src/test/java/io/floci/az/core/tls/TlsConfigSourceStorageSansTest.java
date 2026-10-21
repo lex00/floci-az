@@ -25,4 +25,20 @@ class TlsConfigSourceStorageSansTest {
     void aLocalhostSuffixAddsNothingTwice() {
         assertEquals(4, TlsConfigSource.storageSans("localhost:4577").size());
     }
+
+    @Test
+    void coversVaultHostsOnLocalhostByDefault() {
+        assertEquals(List.of("*.vault.localhost"), TlsConfigSource.keyVaultSans(""));
+    }
+
+    @Test
+    void addsTheConfiguredKeyVaultSuffixWithoutItsPort() {
+        assertEquals(List.of("*.vault.localhost", "*.vault.floci-az"), TlsConfigSource.keyVaultSans("vault.floci-az:4577"));
+    }
+
+    @Test
+    void azuresOwnKeyVaultSuffixAddsNothingTwice() {
+        assertEquals(List.of("*.vault.localhost"), TlsConfigSource.keyVaultSans("vault.azure.net"));
+        assertEquals(List.of("*.vault.localhost"), TlsConfigSource.keyVaultSans("vault.localhost:4577"));
+    }
 }
