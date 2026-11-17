@@ -47,6 +47,11 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
     private static final Pattern WORKSPACE_PATTERN = Pattern.compile(
         "subscriptions/([^/]+)/resourceGroups/([^/]+)/providers/Microsoft\\.OperationalInsights/workspaces/([^/?]+)", Pattern.CASE_INSENSITIVE);
 
+    /** Subscription- or resource-group-scoped list of workspaces, or of soft-deleted workspaces (group 3). */
+    private static final Pattern WORKSPACE_LISTS = Pattern.compile(
+        "subscriptions/([^/]+)(?:/resourceGroups/([^/]+))?/providers/Microsoft\\.OperationalInsights/(deleted)?workspaces(?:\\?.*)?",
+        Pattern.CASE_INSENSITIVE);
+
     private static final Pattern WORKSPACE_KEYS_ACTION = Pattern.compile(
         "/workspaces/[^/]+/(sharedKeys|listKeys)$", Pattern.CASE_INSENSITIVE);
 
@@ -109,6 +114,13 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
     @Override
     public Response handleArm(AzureRequest req, String path, String method, String sub) {
         LOG.debugf("MonitorHandler ARM-plane %s /%s", method, path);
+
+        Matcher lists = WORKSPACE_LISTS.matcher(path);
+        if (lists.matches()) {
+            return "GET".equalsIgnoreCase(method)
+                ? workspaceList(lists.group(1), lists.group(2), lists.group(3) != null)
+                : Response.status(405).build();
+        }
 
         if (path.contains("/providers/Microsoft.OperationalInsights/workspaces/")) {
             return handleWorkspaceArm(req, path, method, sub);
@@ -236,6 +248,18 @@ public class MonitorHandler implements AzureServiceHandler, Resettable, ArmProvi
             return Response.ok().build();
         }
         return Response.status(405).build();
+    }
+
+    /** The workspaces in a scope; the soft-deleted list is always empty, since a delete here removes the workspace. */
+    private Response workspaceList(String sub, String rg, boolean deleted) {
+        List<Map<String, Object>> value = deleted ? List.of() : store.scan(k -> k.startsWith("workspace/")).stream()
+            .filter(o -> {
+                String[] kp = o.key().split("/");
+                return kp.length == 4 && kp[1].equalsIgnoreCase(sub) && (rg == null || kp[2].equalsIgnoreCase(rg));
+            })
+            .map(this::parseStoredData)
+            .toList();
+        return Response.ok(Map.of("value", value)).type(MediaType.APPLICATION_JSON).build();
     }
 
     /** The workspace's shared keys, derived from its customer id so they hold for the workspace's life. */

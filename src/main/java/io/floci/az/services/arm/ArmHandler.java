@@ -282,6 +282,15 @@ public class ArmHandler implements AzureServiceHandler, Resettable {
             return Response.ok(Map.of("value", hsms)).build();
         }
 
+        // ── Log Analytics workspace lists at subscription scope ────────────────
+        // azurerm lists a subscription's soft-deleted workspaces before it creates a workspace, and lists
+        // its workspaces to turn a Container Apps environment's customer id back into a workspace id.
+        // Both are subscription-scoped, so they never reach the resource-group branch below.
+        if (path.toLowerCase(Locale.ROOT)
+                .matches("subscriptions/[^/?]+/providers/microsoft\\.operationalinsights/(deleted)?workspaces([?].*)?")) {
+            return handleProviders(req, path, method, extractSub(path));
+        }
+
         // ── Provider registration check (skip_provider_registration=true still calls this) ──
         // Only matches /subscriptions/{sub}/providers or /subscriptions/{sub}/providers/{namespace}
         // (no resource type segment), so the more-specific handlers above take precedence.
